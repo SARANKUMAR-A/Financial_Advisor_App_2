@@ -1,0 +1,49 @@
+.app-layout {
+    --sidebar-width: 250px;
+
+    width: 100%;
+    min-height: 100vh;
+
+    background: #f8fafc;
+}
+
+.app-layout.sidebar-collapsed {
+    --sidebar-width: 75px;
+}
+
+
+.main-content {
+    width: calc(100% - var(--sidebar-width));
+
+    margin-left: var(--sidebar-width);
+
+    min-height: 100vh;
+
+    padding: 30px;
+
+    transition:
+        width 0.3s ease,
+        margin-left 0.3s ease;
+
+    overflow-x: hidden;
+}
+
+
+/*
+  The sidebar changes width when collapsed.
+  Since CSS cannot directly detect the Sidebar
+  state from AppLayout, we use a responsive
+  approach below.
+*/
+
+@media (max-width: 768px) {
+
+  .main-content {
+    margin-left: 75px;
+  }
+
+}
+
+.sidebar.collapsed {
+    padding: inherit;
+}
