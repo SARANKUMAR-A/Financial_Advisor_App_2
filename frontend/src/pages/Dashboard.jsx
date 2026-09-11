@@ -62,7 +62,6 @@ const CATEGORY_COLORS = [
 ========================================================= */
 
 function formatCurrency(value) {
-
     if (
         value === null ||
         value === undefined ||
@@ -71,15 +70,24 @@ function formatCurrency(value) {
         return "₹0";
     }
 
-    return `₹${Number(value).toLocaleString("en-IN", {
+    const number = Number(value);
+
+    if (Number.isNaN(number)) {
+        return "₹0";
+    }
+
+    return `₹${number.toLocaleString("en-IN", {
         maximumFractionDigits: 0,
     })}`;
 }
 
 
 function formatCompactCurrency(value) {
-
     const number = Number(value || 0);
+
+    if (Number.isNaN(number)) {
+        return "₹0";
+    }
 
     if (number >= 10000000) {
         return `₹${(number / 10000000).toFixed(1)}Cr`;
@@ -98,13 +106,13 @@ function formatCompactCurrency(value) {
 
 
 function getCategoryIcon(category) {
-
     const name = String(category || "").toLowerCase();
 
     if (
         name.includes("food") ||
         name.includes("restaurant") ||
-        name.includes("dining")
+        name.includes("dining") ||
+        name.includes("meal")
     ) {
         return <FiCoffee />;
     }
@@ -129,7 +137,44 @@ function getCategoryIcon(category) {
 
 
 /* =========================================================
-   CUSTOM TOOLTIP
+   MONTH LABEL HELPER
+========================================================= */
+
+function getMonthLabel(item) {
+    return (
+        item?.month_name ||
+        item?.month ||
+        item?.month_label ||
+        item?.name ||
+        item?.label ||
+        ""
+    );
+}
+
+
+/* =========================================================
+   NUMBER HELPER
+========================================================= */
+
+function safeNumber(value) {
+    if (
+        value === null ||
+        value === undefined ||
+        value === ""
+    ) {
+        return 0;
+    }
+
+    const number = Number(value);
+
+    return Number.isNaN(number)
+        ? 0
+        : number;
+}
+
+
+/* =========================================================
+   CUSTOM CASH FLOW TOOLTIP
 ========================================================= */
 
 function CashFlowTooltip({
@@ -137,7 +182,6 @@ function CashFlowTooltip({
     payload,
     label,
 }) {
-
     if (
         !active ||
         !payload ||
@@ -154,9 +198,10 @@ function CashFlowTooltip({
             </strong>
 
             {payload.map((item) => (
-
-                <p key={item.dataKey}>
-
+                <div
+                    className="tooltip-row"
+                    key={item.dataKey}
+                >
                     <span>
                         {item.name}
                     </span>
@@ -164,9 +209,7 @@ function CashFlowTooltip({
                     <b>
                         {formatCurrency(item.value)}
                     </b>
-
-                </p>
-
+                </div>
             ))}
 
         </div>
@@ -174,11 +217,14 @@ function CashFlowTooltip({
 }
 
 
+/* =========================================================
+   CATEGORY TOOLTIP
+========================================================= */
+
 function CategoryTooltip({
     active,
     payload,
 }) {
-
     if (
         !active ||
         !payload ||
@@ -206,10 +252,60 @@ function CategoryTooltip({
 
 
 /* =========================================================
+   MONTHLY EXPENSE TOOLTIP
+========================================================= */
+
+function MonthlyExpenseTooltip({
+    active,
+    payload,
+    label,
+}) {
+    if (
+        !active ||
+        !payload ||
+        !payload.length
+    ) {
+        return null;
+    }
+
+    return (
+        <div className="custom-tooltip">
+
+            <strong>
+                {label}
+            </strong>
+
+            {payload.map((item) => (
+                <div
+                    className="tooltip-row"
+                    key={item.dataKey}
+                >
+                    <span>
+                        {item.name}
+                    </span>
+
+                    <b>
+                        {formatCurrency(item.value)}
+                    </b>
+                </div>
+            ))}
+
+        </div>
+    );
+}
+
+
+/* =========================================================
    DASHBOARD
 ========================================================= */
 
 function Dashboard() {
+
+    /*
+     * IMPORTANT:
+     * Keep ALL hooks at the top level of the component.
+     * Do not put hooks after loading/empty-state returns.
+     */
 
     const [dashboard, setDashboard] = useState(null);
 
@@ -227,9 +323,7 @@ function Dashboard() {
        LOAD DASHBOARD
     ===================================================== */
 
-    async function loadDashboard(
-        showLoader = true
-    ) {
+    async function loadDashboard(showLoader = true) {
 
         try {
 
@@ -239,8 +333,12 @@ function Dashboard() {
 
             setError("");
 
-            const data =
-                await getDashboard();
+            const data = await getDashboard();
+
+            console.log(
+                "Dashboard API response:",
+                data
+            );
 
             setDashboard(data);
 
@@ -261,7 +359,6 @@ function Dashboard() {
             if (showLoader) {
                 setLoading(false);
             }
-
         }
     }
 
@@ -281,9 +378,7 @@ function Dashboard() {
        WAIT FOR BACKGROUND PROCESSING
     ===================================================== */
 
-    async function waitForStatement(
-        statementId
-    ) {
+    async function waitForStatement(statementId) {
 
         const maxAttempts = 90;
 
@@ -300,15 +395,16 @@ function Dashboard() {
                         statementId
                     );
 
+                console.log(
+                    "Statement status:",
+                    response
+                );
+
                 const currentStatus =
                     String(
                         response?.status || ""
                     ).toUpperCase();
 
-
-                /* -----------------------------------------
-                   COMPLETED
-                ----------------------------------------- */
 
                 if (
                     currentStatus ===
@@ -323,10 +419,6 @@ function Dashboard() {
                 }
 
 
-                /* -----------------------------------------
-                   FAILED
-                ----------------------------------------- */
-
                 if (
                     currentStatus ===
                     "FAILED"
@@ -339,27 +431,20 @@ function Dashboard() {
                 }
 
 
-                /* -----------------------------------------
-                   PROCESSING
-                ----------------------------------------- */
-
                 if (
                     currentStatus ===
-                    "PROCESSING" ||
+                        "PROCESSING" ||
                     currentStatus ===
-                    "UPLOADED"
+                        "UPLOADED" ||
+                    currentStatus ===
+                        "PENDING"
                 ) {
 
                     setProcessingMessage(
-                        `Analyzing your statement...`
+                        "Analyzing your statement..."
                     );
-
                 }
 
-
-                /* -----------------------------------------
-                   WAIT
-                ----------------------------------------- */
 
                 await new Promise(
                     (resolve) =>
@@ -391,9 +476,7 @@ function Dashboard() {
        UPLOAD STATEMENT
     ===================================================== */
 
-    async function handleFileUpload(
-        event
-    ) {
+    async function handleFileUpload(event) {
 
         const file =
             event.target.files?.[0];
@@ -402,10 +485,6 @@ function Dashboard() {
             return;
         }
 
-
-        /* -----------------------------------------
-           Basic frontend validation
-        ----------------------------------------- */
 
         const allowedExtensions = [
             ".xls",
@@ -436,18 +515,11 @@ function Dashboard() {
         }
 
 
-        /* -----------------------------------------
-           File size
-        ----------------------------------------- */
-
         const maxFileSize =
             10 * 1024 * 1024;
 
 
-        if (
-            file.size >
-            maxFileSize
-        ) {
+        if (file.size > maxFileSize) {
 
             setError(
                 "File size must be less than 10 MB."
@@ -470,10 +542,6 @@ function Dashboard() {
             );
 
 
-            /* -----------------------------------------
-               Upload
-            ----------------------------------------- */
-
             const response =
                 await uploadBankStatement(
                     file
@@ -486,9 +554,7 @@ function Dashboard() {
             );
 
 
-            if (
-                !response?.success
-            ) {
+            if (!response?.success) {
 
                 throw new Error(
                     response?.message ||
@@ -509,10 +575,6 @@ function Dashboard() {
             }
 
 
-            /* -----------------------------------------
-               Background processing
-            ----------------------------------------- */
-
             setProcessingMessage(
                 "Statement uploaded. Analysis is running in the background..."
             );
@@ -523,18 +585,12 @@ function Dashboard() {
             );
 
 
-            /* -----------------------------------------
-               Refresh dashboard
-            ----------------------------------------- */
-
             setProcessingMessage(
                 "Analysis completed. Refreshing your dashboard..."
             );
 
 
-            await loadDashboard(
-                false
-            );
+            await loadDashboard(false);
 
 
             setProcessingMessage(
@@ -542,15 +598,8 @@ function Dashboard() {
             );
 
 
-            /* -----------------------------------------
-               Hide success message
-               after short delay
-            ----------------------------------------- */
-
             setTimeout(() => {
-
                 setProcessingMessage("");
-
             }, 2500);
 
 
@@ -572,14 +621,215 @@ function Dashboard() {
 
             setUploading(false);
 
-            /*
-             * Reset input so the user can upload
-             * the same file again if required.
-             */
-
             event.target.value = "";
         }
     }
+
+
+    /* =====================================================
+       NORMALIZE DASHBOARD DATA
+       
+       These calculations are intentionally NOT useMemo.
+       This prevents the React hook-order error.
+    ===================================================== */
+
+    const cards =
+        dashboard?.cards || {};
+
+    const categories =
+        Array.isArray(
+            dashboard?.categories
+        )
+            ? dashboard.categories
+            : [];
+
+    const monthly =
+        Array.isArray(
+            dashboard?.monthly
+        )
+            ? dashboard.monthly
+            : [];
+
+    const recentTransactions =
+        Array.isArray(
+            dashboard?.recent_transactions
+        )
+            ? dashboard.recent_transactions
+            : [];
+
+    const insights =
+        dashboard?.insights || {};
+
+
+    /* =====================================================
+       CATEGORY CHART DATA
+    ===================================================== */
+
+    const categoryChartData =
+        categories
+            .map((category) => {
+
+                const amount =
+                    safeNumber(
+                        category?.total_amount ??
+                        category?.amount ??
+                        category?.total
+                    );
+
+                return {
+                    ...category,
+                    category:
+                        category?.category ||
+                        "Others",
+                    amount,
+                };
+            })
+            .filter(
+                (category) =>
+                    category.amount > 0
+            );
+
+
+    /* =====================================================
+       TOP CATEGORY
+    ===================================================== */
+
+    const topCategory =
+        categories.length > 0
+            ? [
+                ...categories
+            ].sort(
+                (a, b) =>
+                    safeNumber(
+                        b?.total_amount ??
+                        b?.amount ??
+                        b?.total
+                    ) -
+                    safeNumber(
+                        a?.total_amount ??
+                        a?.amount ??
+                        a?.total
+                    )
+            )[0]
+            : null;
+
+
+    /* =====================================================
+       TOTAL CATEGORY SPEND
+    ===================================================== */
+
+    const totalCategorySpend =
+        categoryChartData.reduce(
+            (
+                total,
+                category
+            ) =>
+                total +
+                safeNumber(
+                    category.amount
+                ),
+            0
+        );
+
+
+    /* =====================================================
+       MONTHLY CHART DATA
+       
+       Supports:
+       - income / expenses
+       - total_income / total_expenses
+       - credit / debit
+    ===================================================== */
+
+    const monthlyTotals =
+        monthly.map((item, index) => {
+
+            const income =
+                safeNumber(
+                    item?.income ??
+                    item?.total_income ??
+                    item?.credit ??
+                    item?.credits ??
+                    0
+                );
+
+            const expenses =
+                safeNumber(
+                    item?.expenses ??
+                    item?.total_expenses ??
+                    item?.debit ??
+                    item?.debits ??
+                    0
+                );
+
+            let monthName =
+                getMonthLabel(item);
+
+
+            /*
+             * If backend does not provide month_name,
+             * try to build a readable label.
+             */
+
+            if (!monthName) {
+
+                const dateValue =
+                    item?.month_date ||
+                    item?.date;
+
+                if (dateValue) {
+
+                    const date =
+                        new Date(
+                            dateValue
+                        );
+
+                    if (
+                        !Number.isNaN(
+                            date.getTime()
+                        )
+                    ) {
+
+                        monthName =
+                            date.toLocaleDateString(
+                                "en-IN",
+                                {
+                                    month: "short",
+                                    year: "numeric",
+                                }
+                            );
+                    }
+                }
+            }
+
+
+            if (!monthName) {
+                monthName = `Month ${index + 1}`;
+            }
+
+
+            return {
+                ...item,
+                month_name: monthName,
+                income,
+                expenses,
+            };
+        });
+
+
+    /* =====================================================
+       DEBUG CHART DATA
+    ===================================================== */
+
+    console.log(
+        "Monthly chart data:",
+        monthlyTotals
+    );
+
+    console.log(
+        "Category chart data:",
+        categoryChartData
+    );
 
 
     /* =====================================================
@@ -594,9 +844,7 @@ function Dashboard() {
                 <div className="dashboard-loading">
 
                     <div className="loading-spinner">
-
                         <FiActivity />
-
                     </div>
 
                     <h3>
@@ -626,9 +874,7 @@ function Dashboard() {
                 <div className="empty-dashboard">
 
                     <div className="empty-icon">
-
                         <FiCreditCard />
-
                     </div>
 
                     <span className="empty-label">
@@ -670,7 +916,11 @@ function Dashboard() {
                         }
                     >
 
-                        <FiUpload />
+                        {uploading ? (
+                            <FiActivity />
+                        ) : (
+                            <FiUpload />
+                        )}
 
                         {uploading
                             ? "Analyzing..."
@@ -686,9 +936,7 @@ function Dashboard() {
                             <div className="upload-progress">
 
                                 <div className="loading-spinner small">
-
                                     <FiActivity />
-
                                 </div>
 
                                 <span>
@@ -701,13 +949,9 @@ function Dashboard() {
 
 
                     {error && (
-
                         <p className="error">
-
                             {error}
-
                         </p>
-
                     )}
 
                 </div>
@@ -715,94 +959,6 @@ function Dashboard() {
             </div>
         );
     }
-
-
-    /* =====================================================
-       DATA
-    ===================================================== */
-
-    const {
-        cards = {},
-        categories = [],
-        monthly = [],
-        recent_transactions = [],
-        insights = {},
-    } = dashboard;
-
-
-    /* =====================================================
-       DERIVED DATA
-    ===================================================== */
-
-    const categoryChartData =
-        categories.map(
-            (category) => ({
-
-                ...category,
-
-                amount:
-                    Number(
-                        category.total_amount ||
-                        0
-                    ),
-
-            })
-        );
-
-
-    const topCategory =
-        categories.length
-            ? [
-                ...categories
-            ].sort(
-                (a, b) =>
-                    Number(
-                        b.total_amount ||
-                        0
-                    ) -
-                    Number(
-                        a.total_amount ||
-                        0
-                    )
-            )[0]
-            : null;
-
-
-    const totalCategorySpend =
-        categories.reduce(
-            (
-                total,
-                category
-            ) =>
-                total +
-                Number(
-                    category.total_amount ||
-                    0
-                ),
-            0
-        );
-
-
-    const monthlyTotals =
-        monthly.map(
-            (item) => ({
-
-                ...item,
-
-                income:
-                    Number(
-                        item.income ||
-                        0
-                    ),
-
-                expenses:
-                    Number(
-                        item.expenses ||
-                        0
-                    ),
-
-            })
-        );
 
 
     /* =====================================================
@@ -881,7 +1037,7 @@ function Dashboard() {
 
 
             {/* =================================================
-                PROCESSING MESSAGE
+                PROCESSING
             ================================================= */}
 
             {uploading &&
@@ -890,9 +1046,7 @@ function Dashboard() {
                     <div className="processing-banner">
 
                         <div className="processing-icon">
-
                             <FiActivity />
-
                         </div>
 
                         <div>
@@ -908,7 +1062,6 @@ function Dashboard() {
                         </div>
 
                     </div>
-
                 )}
 
 
@@ -927,7 +1080,6 @@ function Dashboard() {
                     </span>
 
                 </div>
-
             )}
 
 
@@ -972,9 +1124,8 @@ function Dashboard() {
                     }
                     icon={<FiActivity />}
                     type={
-                        Number(
-                            cards.net_cash_flow ||
-                            0
+                        safeNumber(
+                            cards.net_cash_flow
                         ) >= 0
                             ? "income"
                             : "expense"
@@ -985,10 +1136,11 @@ function Dashboard() {
 
                 <MetricCard
                     title="Savings Rate"
-                    value={`${Number(
-                        cards.savings_rate ||
-                        0
-                    ).toFixed(1)}%`}
+                    value={
+                        `${safeNumber(
+                            cards.savings_rate
+                        ).toFixed(1)}%`
+                    }
                     icon={<FiPercent />}
                     type="savings"
                     description="Percentage saved"
@@ -1005,7 +1157,7 @@ function Dashboard() {
 
 
                 {/* =================================================
-                    CASH FLOW
+                    INCOME VS EXPENSES
                 ================================================= */}
 
                 <div className="dashboard-card cash-flow-card">
@@ -1046,163 +1198,174 @@ function Dashboard() {
                     </div>
 
 
-                    <div className="chart-container">
+                    {monthlyTotals.length > 0 ? (
 
-                        <ResponsiveContainer
-                            width="100%"
-                            height={340}
-                        >
+                        <div className="chart-container cash-flow-chart">
 
-                            <AreaChart
-                                data={
-                                    monthlyTotals
-                                }
-                                margin={{
-                                    top: 10,
-                                    right: 10,
-                                    left: 0,
-                                    bottom: 0,
-                                }}
+                            <ResponsiveContainer
+                                width="100%"
+                                height="100%"
                             >
 
-                                <defs>
-
-                                    <linearGradient
-                                        id="incomeGradient"
-                                        x1="0"
-                                        y1="0"
-                                        x2="0"
-                                        y2="1"
-                                    >
-
-                                        <stop
-                                            offset="0%"
-                                            stopColor="#6366f1"
-                                            stopOpacity={0.30}
-                                        />
-
-                                        <stop
-                                            offset="100%"
-                                            stopColor="#6366f1"
-                                            stopOpacity={0}
-                                        />
-
-                                    </linearGradient>
-
-
-                                    <linearGradient
-                                        id="expenseGradient"
-                                        x1="0"
-                                        y1="0"
-                                        x2="0"
-                                        y2="1"
-                                    >
-
-                                        <stop
-                                            offset="0%"
-                                            stopColor="#f87171"
-                                            stopOpacity={0.18}
-                                        />
-
-                                        <stop
-                                            offset="100%"
-                                            stopColor="#f87171"
-                                            stopOpacity={0}
-                                        />
-
-                                    </linearGradient>
-
-                                </defs>
-
-
-                                <CartesianGrid
-                                    strokeDasharray="4 4"
-                                    vertical={false}
-                                    stroke="#eef0f4"
-                                />
-
-
-                                <XAxis
-                                    dataKey="month_name"
-                                    axisLine={false}
-                                    tickLine={false}
-                                    tick={{
-                                        fill: "#9ca3af",
-                                        fontSize: 11,
+                                <AreaChart
+                                    data={monthlyTotals}
+                                    margin={{
+                                        top: 10,
+                                        right: 15,
+                                        left: 5,
+                                        bottom: 10,
                                     }}
-                                />
+                                >
+
+                                    <defs>
+
+                                        <linearGradient
+                                            id="incomeGradient"
+                                            x1="0"
+                                            y1="0"
+                                            x2="0"
+                                            y2="1"
+                                        >
+
+                                            <stop
+                                                offset="0%"
+                                                stopColor="#6366f1"
+                                                stopOpacity={0.30}
+                                            />
+
+                                            <stop
+                                                offset="100%"
+                                                stopColor="#6366f1"
+                                                stopOpacity={0}
+                                            />
+
+                                        </linearGradient>
 
 
-                                <YAxis
-                                    axisLine={false}
-                                    tickLine={false}
-                                    tick={{
-                                        fill: "#9ca3af",
-                                        fontSize: 11,
-                                    }}
-                                    tickFormatter={
-                                        formatCompactCurrency
-                                    }
-                                />
+                                        <linearGradient
+                                            id="expenseGradient"
+                                            x1="0"
+                                            y1="0"
+                                            x2="0"
+                                            y2="1"
+                                        >
+
+                                            <stop
+                                                offset="0%"
+                                                stopColor="#ef4444"
+                                                stopOpacity={0.20}
+                                            />
+
+                                            <stop
+                                                offset="100%"
+                                                stopColor="#ef4444"
+                                                stopOpacity={0}
+                                            />
+
+                                        </linearGradient>
+
+                                    </defs>
 
 
-                                <Tooltip
-                                    content={
-                                        <CashFlowTooltip />
-                                    }
-                                />
+                                    <CartesianGrid
+                                        strokeDasharray="4 4"
+                                        vertical={false}
+                                        stroke="#eef0f4"
+                                    />
 
 
-                                <Area
-                                    type="monotone"
-                                    dataKey="income"
-                                    name="Income"
-                                    stroke="#6366f1"
-                                    strokeWidth={3}
-                                    fill="url(#incomeGradient)"
-                                    dot={false}
-                                    activeDot={{
-                                        r: 5,
-                                    }}
-                                />
+                                    <XAxis
+                                        dataKey="month_name"
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tick={{
+                                            fill: "#9ca3af",
+                                            fontSize: 11,
+                                        }}
+                                        interval="preserveStartEnd"
+                                    />
 
 
-                                <Area
-                                    type="monotone"
-                                    dataKey="expenses"
-                                    name="Expenses"
-                                    stroke="#ef4444"
-                                    strokeWidth={3}
-                                    fill="url(#expenseGradient)"
-                                    dot={false}
-                                    activeDot={{
-                                        r: 5,
-                                    }}
-                                />
+                                    <YAxis
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tick={{
+                                            fill: "#9ca3af",
+                                            fontSize: 11,
+                                        }}
+                                        tickFormatter={
+                                            formatCompactCurrency
+                                        }
+                                        width={55}
+                                    />
 
-                            </AreaChart>
 
-                        </ResponsiveContainer>
+                                    <Tooltip
+                                        content={
+                                            <CashFlowTooltip />
+                                        }
+                                    />
 
-                    </div>
+
+                                    <Area
+                                        type="monotone"
+                                        dataKey="income"
+                                        name="Income"
+                                        stroke="#6366f1"
+                                        strokeWidth={3}
+                                        fill="url(#incomeGradient)"
+                                        dot={false}
+                                        activeDot={{
+                                            r: 5,
+                                        }}
+                                        connectNulls
+                                    />
+
+
+                                    <Area
+                                        type="monotone"
+                                        dataKey="expenses"
+                                        name="Expenses"
+                                        stroke="#ef4444"
+                                        strokeWidth={3}
+                                        fill="url(#expenseGradient)"
+                                        dot={false}
+                                        activeDot={{
+                                            r: 5,
+                                        }}
+                                        connectNulls
+                                    />
+
+                                </AreaChart>
+
+                            </ResponsiveContainer>
+
+                        </div>
+
+                    ) : (
+
+                        <div className="chart-empty">
+
+                            <FiActivity />
+
+                            <span>
+                                No monthly cash-flow data available.
+                            </span>
+
+                        </div>
+                    )}
 
 
                     <div className="chart-legend">
 
                         <span>
-
                             <i className="legend-income" />
-
                             Income
-
                         </span>
 
                         <span>
-
                             <i className="legend-expense" />
-
                             Expenses
-
                         </span>
 
                     </div>
@@ -1237,77 +1400,89 @@ function Dashboard() {
                     </div>
 
 
-                    <div className="donut-wrapper">
+                    {categoryChartData.length > 0 ? (
 
-                        <ResponsiveContainer
-                            width="100%"
-                            height={250}
-                        >
+                        <div className="donut-wrapper">
 
-                            <PieChart>
+                            <ResponsiveContainer
+                                width="100%"
+                                height={250}
+                            >
 
-                                <Pie
-                                    data={
-                                        categoryChartData
-                                    }
-                                    dataKey="amount"
-                                    nameKey="category"
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={65}
-                                    outerRadius={95}
-                                    paddingAngle={4}
-                                    stroke="none"
-                                >
+                                <PieChart>
 
-                                    {categoryChartData.map(
-                                        (_, index) => (
+                                    <Pie
+                                        data={categoryChartData}
+                                        dataKey="amount"
+                                        nameKey="category"
+                                        cx="50%"
+                                        cy="50%"
+                                        innerRadius={65}
+                                        outerRadius={95}
+                                        paddingAngle={4}
+                                        stroke="none"
+                                    >
 
-                                            <Cell
-                                                key={index}
-                                                fill={
-                                                    CATEGORY_COLORS[
-                                                        index %
-                                                        CATEGORY_COLORS.length
-                                                    ]
-                                                }
-                                            />
+                                        {categoryChartData.map(
+                                            (_, index) => (
 
-                                        )
+                                                <Cell
+                                                    key={`category-${index}`}
+                                                    fill={
+                                                        CATEGORY_COLORS[
+                                                            index %
+                                                            CATEGORY_COLORS.length
+                                                        ]
+                                                    }
+                                                />
+
+                                            )
+                                        )}
+
+                                    </Pie>
+
+
+                                    <Tooltip
+                                        content={
+                                            <CategoryTooltip />
+                                        }
+                                    />
+
+                                </PieChart>
+
+                            </ResponsiveContainer>
+
+
+                            <div className="donut-center">
+
+                                <strong>
+                                    {formatCompactCurrency(
+                                        totalCategorySpend
                                     )}
+                                </strong>
 
-                                </Pie>
+                                <span>
+                                    Total spent
+                                </span>
 
+                            </div>
 
-                                <Tooltip
-                                    content={
-                                        <CategoryTooltip />
-                                    }
-                                />
+                        </div>
 
-                            </PieChart>
+                    ) : (
 
-                        </ResponsiveContainer>
+                        <div className="chart-empty small-empty">
 
-
-                        <div className="donut-center">
-
-                            <strong>
-                                {formatCompactCurrency(
-                                    totalCategorySpend
-                                )}
-                            </strong>
+                            <FiActivity />
 
                             <span>
-                                Total spent
+                                No category data available.
                             </span>
 
                         </div>
 
-                    </div>
+                    )}
 
-
-                    {/* CATEGORY LEGEND */}
 
                     <div className="category-mini-list">
 
@@ -1322,7 +1497,8 @@ function Dashboard() {
                                     <div
                                         className="category-mini-row"
                                         key={
-                                            category.category
+                                            category.category ||
+                                            index
                                         }
                                     >
 
@@ -1339,22 +1515,21 @@ function Dashboard() {
                                             />
 
                                             {
-                                                category.category
+                                                category.category ||
+                                                "Others"
                                             }
 
                                         </span>
 
 
                                         <strong>
-                                            {Number(
-                                                category.percentage ||
-                                                0
+                                            {safeNumber(
+                                                category.percentage
                                             ).toFixed(1)}
                                             %
                                         </strong>
 
                                     </div>
-
                                 )
                             )}
 
@@ -1372,7 +1547,9 @@ function Dashboard() {
             <div className="dashboard-grid">
 
 
-                {/* MONTHLY EXPENSE BAR */}
+                {/* =================================================
+                    MONTHLY EXPENSES
+                ================================================= */}
 
                 <div className="dashboard-card">
 
@@ -1397,84 +1574,104 @@ function Dashboard() {
                     </div>
 
 
-                    <div className="chart-container">
+                    {monthlyTotals.length > 0 ? (
 
-                        <ResponsiveContainer
-                            width="100%"
-                            height={300}
-                        >
+                        <div className="chart-container monthly-expense-chart">
 
-                            <BarChart
-                                data={
-                                    monthlyTotals
-                                }
-                                margin={{
-                                    top: 10,
-                                    right: 10,
-                                    left: 0,
-                                    bottom: 0,
-                                }}
+                            <ResponsiveContainer
+                                width="100%"
+                                height="100%"
                             >
 
-                                <CartesianGrid
-                                    strokeDasharray="4 4"
-                                    vertical={false}
-                                    stroke="#eef0f4"
-                                />
-
-                                <XAxis
-                                    dataKey="month_name"
-                                    axisLine={false}
-                                    tickLine={false}
-                                    tick={{
-                                        fill: "#9ca3af",
-                                        fontSize: 11,
+                                <BarChart
+                                    data={monthlyTotals}
+                                    margin={{
+                                        top: 10,
+                                        right: 15,
+                                        left: 5,
+                                        bottom: 10,
                                     }}
-                                />
+                                >
 
-                                <YAxis
-                                    axisLine={false}
-                                    tickLine={false}
-                                    tick={{
-                                        fill: "#9ca3af",
-                                        fontSize: 11,
-                                    }}
-                                    tickFormatter={
-                                        formatCompactCurrency
-                                    }
-                                />
+                                    <CartesianGrid
+                                        strokeDasharray="4 4"
+                                        vertical={false}
+                                        stroke="#eef0f4"
+                                    />
 
-                                <Tooltip
-                                    formatter={(value) =>
-                                        formatCurrency(
-                                            value
-                                        )
-                                    }
-                                />
 
-                                <Bar
-                                    dataKey="expenses"
-                                    name="Expenses"
-                                    fill="#6366f1"
-                                    radius={[
-                                        8,
-                                        8,
-                                        0,
-                                        0,
-                                    ]}
-                                    maxBarSize={42}
-                                />
+                                    <XAxis
+                                        dataKey="month_name"
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tick={{
+                                            fill: "#9ca3af",
+                                            fontSize: 11,
+                                        }}
+                                        interval="preserveStartEnd"
+                                    />
 
-                            </BarChart>
 
-                        </ResponsiveContainer>
+                                    <YAxis
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tick={{
+                                            fill: "#9ca3af",
+                                            fontSize: 11,
+                                        }}
+                                        tickFormatter={
+                                            formatCompactCurrency
+                                        }
+                                        width={55}
+                                    />
 
-                    </div>
+
+                                    <Tooltip
+                                        content={
+                                            <MonthlyExpenseTooltip />
+                                        }
+                                    />
+
+
+                                    <Bar
+                                        dataKey="expenses"
+                                        name="Expenses"
+                                        fill="#6366f1"
+                                        radius={[
+                                            8,
+                                            8,
+                                            0,
+                                            0,
+                                        ]}
+                                        maxBarSize={50}
+                                        minPointSize={3}
+                                    />
+
+                                </BarChart>
+
+                            </ResponsiveContainer>
+
+                        </div>
+
+                    ) : (
+
+                        <div className="chart-empty">
+
+                            <FiActivity />
+
+                            <span>
+                                No monthly expense data available.
+                            </span>
+
+                        </div>
+                    )}
 
                 </div>
 
 
-                {/* TOP CATEGORY */}
+                {/* =================================================
+                    TOP CATEGORY
+                ================================================= */}
 
                 <div className="dashboard-card spending-highlight">
 
@@ -1514,7 +1711,8 @@ function Dashboard() {
 
                             <h2>
                                 {
-                                    topCategory.category
+                                    topCategory.category ||
+                                    "Others"
                                 }
                             </h2>
 
@@ -1522,7 +1720,8 @@ function Dashboard() {
                             <div className="highlight-amount">
 
                                 {formatCurrency(
-                                    topCategory.total_amount
+                                    topCategory.total_amount ??
+                                    topCategory.amount
                                 )}
 
                             </div>
@@ -1534,9 +1733,8 @@ function Dashboard() {
                                     style={{
                                         width:
                                             `${Math.min(
-                                                Number(
-                                                    topCategory.percentage ||
-                                                    0
+                                                safeNumber(
+                                                    topCategory.percentage
                                                 ),
                                                 100
                                             )}%`,
@@ -1548,9 +1746,8 @@ function Dashboard() {
 
                             <p className="highlight-description">
 
-                                {Number(
-                                    topCategory.percentage ||
-                                    0
+                                {safeNumber(
+                                    topCategory.percentage
                                 ).toFixed(1)}
 
                                 % of your total spending
@@ -1601,47 +1798,97 @@ function Dashboard() {
 
                 <div className="category-list">
 
-                    {categories.map(
-                        (
-                            category
-                        ) => (
+                    {categories.length > 0 ? (
 
-                            <div
-                                className="category-row"
-                                key={
-                                    category.category
-                                }
-                            >
+                        categories.map(
+                            (
+                                category,
+                                index
+                            ) => (
 
-                                <div className="category-left">
+                                <div
+                                    className="category-row"
+                                    key={
+                                        category.category ||
+                                        index
+                                    }
+                                >
 
-                                    <div
-                                        className="category-icon"
-                                    >
+                                    <div className="category-left">
 
-                                        {getCategoryIcon(
-                                            category.category
-                                        )}
+                                        <div className="category-icon">
+
+                                            {getCategoryIcon(
+                                                category.category
+                                            )}
+
+                                        </div>
+
+
+                                        <div>
+
+                                            <strong>
+                                                {
+                                                    category.category ||
+                                                    "Others"
+                                                }
+                                            </strong>
+
+                                            <small>
+
+                                                {
+                                                    category.transaction_count ||
+                                                    0
+                                                }
+
+                                                {" "}
+                                                transactions
+
+                                            </small>
+
+                                        </div>
 
                                     </div>
 
 
-                                    <div>
+                                    <div className="category-middle">
+
+                                        <div className="category-progress">
+
+                                            <div
+                                                className="category-progress-bar"
+                                                style={{
+                                                    width:
+                                                        `${Math.min(
+                                                            safeNumber(
+                                                                category.percentage
+                                                            ),
+                                                            100
+                                                        )}%`,
+                                                }}
+                                            />
+
+                                        </div>
+
+                                    </div>
+
+
+                                    <div className="category-right">
 
                                         <strong>
-                                            {
-                                                category.category
-                                            }
+                                            {formatCurrency(
+                                                category.total_amount ??
+                                                category.amount
+                                            )}
                                         </strong>
 
                                         <small>
 
-                                            {
-                                                category.transaction_count
-                                            }
+                                            {safeNumber(
+                                                category.percentage
+                                            ).toFixed(1)}
 
-                                            {" "}
-                                            transactions
+                                            %
 
                                         </small>
 
@@ -1649,54 +1896,15 @@ function Dashboard() {
 
                                 </div>
 
-
-                                <div className="category-middle">
-
-                                    <div className="category-progress">
-
-                                        <div
-                                            className="category-progress-bar"
-                                            style={{
-                                                width:
-                                                    `${Math.min(
-                                                        Number(
-                                                            category.percentage ||
-                                                            0
-                                                        ),
-                                                        100
-                                                    )}%`,
-                                            }}
-                                        />
-
-                                    </div>
-
-                                </div>
-
-
-                                <div className="category-right">
-
-                                    <strong>
-                                        {formatCurrency(
-                                            category.total_amount
-                                        )}
-                                    </strong>
-
-                                    <small>
-
-                                        {Number(
-                                            category.percentage ||
-                                            0
-                                        ).toFixed(1)}
-
-                                        %
-
-                                    </small>
-
-                                </div>
-
-                            </div>
-
+                            )
                         )
+
+                    ) : (
+
+                        <div className="no-data">
+                            No expense categories available.
+                        </div>
+
                     )}
 
                 </div>
@@ -1711,7 +1919,9 @@ function Dashboard() {
             <div className="dashboard-grid">
 
 
-                {/* RECENT TRANSACTIONS */}
+                {/* =================================================
+                    RECENT TRANSACTIONS
+                ================================================= */}
 
                 <div className="dashboard-card">
 
@@ -1750,10 +1960,9 @@ function Dashboard() {
 
                     <div>
 
-                        {recent_transactions.length >
-                        0 ? (
+                        {recentTransactions.length > 0 ? (
 
-                            recent_transactions
+                            recentTransactions
                                 .slice(0, 6)
                                 .map(
                                     (
@@ -1775,9 +1984,7 @@ function Dashboard() {
                         ) : (
 
                             <div className="no-data">
-
                                 No recent transactions.
-
                             </div>
 
                         )}
@@ -1787,7 +1994,9 @@ function Dashboard() {
                 </div>
 
 
-                {/* AI INSIGHTS */}
+                {/* =================================================
+                    AI INSIGHTS
+                ================================================= */}
 
                 <div className="dashboard-card ai-card">
 
@@ -1828,8 +2037,11 @@ function Dashboard() {
                     </div>
 
 
-                    {insights?.recommendations?.length >
-                        0 && (
+                    {Array.isArray(
+                        insights?.recommendations
+                    ) &&
+                        insights.recommendations.length >
+                            0 && (
 
                             <div className="recommendations">
 
@@ -1908,9 +2120,7 @@ function MetricCard({
             <div className="metric-top">
 
                 <div className="metric-icon">
-
                     {icon}
-
                 </div>
 
 
@@ -1944,23 +2154,17 @@ function MetricCard({
 
 
             <span className="metric-title">
-
                 {title}
-
             </span>
 
 
             <h2>
-
                 {value}
-
             </h2>
 
 
             <p>
-
                 {description}
-
             </p>
 
         </div>
@@ -1977,8 +2181,15 @@ function Transaction({
 }) {
 
     const isCredit =
-        transaction.transaction_type ===
-        "CREDIT";
+        String(
+            transaction?.transaction_type || ""
+        ).toUpperCase() === "CREDIT";
+
+
+    const amount =
+        isCredit
+            ? transaction?.credit
+            : transaction?.debit;
 
 
     return (
@@ -2008,8 +2219,8 @@ function Transaction({
                 <strong>
 
                     {
-                        transaction.merchant ||
-                        transaction.description ||
+                        transaction?.merchant ||
+                        transaction?.description ||
                         "Transaction"
                     }
 
@@ -2019,13 +2230,14 @@ function Transaction({
                 <small>
 
                     {
-                        transaction.transaction_date
+                        transaction?.transaction_date ||
+                        "-"
                     }
 
                     {" · "}
 
                     {
-                        transaction.category ||
+                        transaction?.category ||
                         "Other"
                     }
 
@@ -2050,9 +2262,7 @@ function Transaction({
                     }
 
                     {formatCurrency(
-                        isCredit
-                            ? transaction.credit
-                            : transaction.debit
+                        amount
                     )}
 
                 </b>

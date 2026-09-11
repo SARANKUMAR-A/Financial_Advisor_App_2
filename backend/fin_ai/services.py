@@ -92,7 +92,9 @@ def clean_amount(value):
 
 def clean_text(value):
     """
-    Safely convert an Excel cell to string.
+    Safely convert an Excel/AI value to string.
+
+    None, NaN and empty values become an empty string.
     """
 
     if value is None:
@@ -993,8 +995,20 @@ def get_ai_category(
     """
     AI categorization with fallback.
 
-    If Ollama is unavailable or returns an invalid
-    response, the transaction will still be imported.
+    Ensures the returned values can safely be
+    inserted into NOT NULL database fields.
+
+    Important:
+    Ollama may return:
+
+        "merchant": null
+
+    In Python this becomes:
+
+        merchant = None
+
+    The database does not allow NULL for merchant,
+    so None is converted to "Unknown Merchant".
     """
 
     try:
@@ -1008,27 +1022,122 @@ def get_ai_category(
             result,
             dict
         ):
+
             raise ValueError(
                 "Invalid AI response."
             )
 
+        # ----------------------------------------------------
+        # CATEGORY
+        # ----------------------------------------------------
+
+        category = clean_text(
+            result.get(
+                "category"
+            )
+        )
+
+        if not category:
+
+            category = "Others"
+
+        # ----------------------------------------------------
+        # MERCHANT
+        # ----------------------------------------------------
+
+        merchant = clean_text(
+            result.get(
+                "merchant"
+            )
+        )
+
+        if not merchant:
+
+            merchant = "Unknown Merchant"
+
+        # ----------------------------------------------------
+        # CONFIDENCE
+        # ----------------------------------------------------
+
+        confidence = result.get(
+            "confidence"
+        )
+
+        if confidence is None:
+
+            confidence = 0
+
+        try:
+
+            confidence = float(
+                confidence
+            )
+
+        except (
+            ValueError,
+            TypeError
+        ):
+
+            confidence = 0
+
+        # Keep confidence within valid range
+        confidence = max(
+            0,
+            min(
+                confidence,
+                1
+            )
+        )
+
+        # ----------------------------------------------------
+        # REASON
+        # ----------------------------------------------------
+
+        reason = clean_text(
+            result.get(
+                "reason"
+            )
+        )
+
+        if not reason:
+
+            reason = (
+                "No AI reason provided."
+            )
+
+        # ----------------------------------------------------
+        # DEBUG
+        # ----------------------------------------------------
+
+        print(
+            "AI categorization result:"
+        )
+
+        print(
+            "  Category:",
+            category
+        )
+
+        print(
+            "  Merchant:",
+            merchant
+        )
+
+        print(
+            "  Confidence:",
+            confidence
+        )
+
+        print(
+            "  Reason:",
+            reason
+        )
+
         return {
-            "category": result.get(
-                "category",
-                "Others"
-            ),
-            "merchant": result.get(
-                "merchant",
-                ""
-            ),
-            "confidence": result.get(
-                "confidence",
-                0
-            ),
-            "reason": result.get(
-                "reason",
-                ""
-            ),
+            "category": category,
+            "merchant": merchant,
+            "confidence": confidence,
+            "reason": reason,
         }
 
     except Exception as error:
@@ -1038,9 +1147,13 @@ def get_ai_category(
             error
         )
 
+        # ----------------------------------------------------
+        # Complete fallback
+        # ----------------------------------------------------
+
         return {
             "category": "Others",
-            "merchant": "",
+            "merchant": "Unknown Merchant",
             "confidence": 0,
             "reason": "AI categorization unavailable.",
         }
@@ -1137,7 +1250,10 @@ def process_statement(statement):
         # Process every transaction
         # ----------------------------------------------------
 
-        for _, row in df.iterrows():
+        for row_number, (_, row) in enumerate(
+            df.iterrows(),
+            start=1
+        ):
 
             transaction_date = (
                 row["transaction_date"]
@@ -1222,6 +1338,123 @@ def process_statement(statement):
             )
 
             # ------------------------------------------------
+            # FINAL SAFETY NORMALIZATION
+            #
+            # Even if get_ai_category() somehow returns
+            # None/empty values, never send NULL merchant
+            # to PostgreSQL.
+            # ------------------------------------------------
+
+            category = clean_text(
+                ai_result.get(
+                    "category"
+                )
+            )
+
+            if not category:
+
+                category = "Others"
+
+            merchant = clean_text(
+                ai_result.get(
+                    "merchant"
+                )
+            )
+
+            if not merchant:
+
+                merchant = "Unknown Merchant"
+
+            confidence = ai_result.get(
+                "confidence"
+            )
+
+            if confidence is None:
+
+                confidence = 0
+
+            try:
+
+                confidence = float(
+                    confidence
+                )
+
+            except (
+                ValueError,
+                TypeError
+            ):
+
+                confidence = 0
+
+            confidence = max(
+                0,
+                min(
+                    confidence,
+                    1
+                )
+            )
+
+            reason = clean_text(
+                ai_result.get(
+                    "reason"
+                )
+            )
+
+            if not reason:
+
+                reason = (
+                    "No AI reason provided."
+                )
+
+            # ------------------------------------------------
+            # Debug transaction
+            # ------------------------------------------------
+
+            print(
+                "----------------------------------------------"
+            )
+
+            print(
+                "Processing transaction:",
+                row_number
+            )
+
+            print(
+                "Date:",
+                transaction_date
+            )
+
+            print(
+                "Description:",
+                description
+            )
+
+            print(
+                "Debit:",
+                debit
+            )
+
+            print(
+                "Credit:",
+                credit
+            )
+
+            print(
+                "Category:",
+                category
+            )
+
+            print(
+                "Merchant:",
+                merchant
+            )
+
+            print(
+                "Confidence:",
+                confidence
+            )
+
+            # ------------------------------------------------
             # Create transaction
             # ------------------------------------------------
 
@@ -1240,21 +1473,13 @@ def process_statement(statement):
 
                 transaction_type=transaction_type,
 
-                category=ai_result[
-                    "category"
-                ],
+                category=category,
 
-                merchant=ai_result[
-                    "merchant"
-                ],
+                merchant=merchant,
 
-                ai_confidence=ai_result[
-                    "confidence"
-                ],
+                ai_confidence=confidence,
 
-                ai_reason=ai_result[
-                    "reason"
-                ],
+                ai_reason=reason,
             )
 
             # ------------------------------------------------
@@ -1265,6 +1490,7 @@ def process_statement(statement):
                 transaction_obj,
                 "value_date"
             ):
+
                 transaction_obj.value_date = (
                     value_date
                 )
@@ -1273,6 +1499,7 @@ def process_statement(statement):
                 transaction_obj,
                 "cheque_number"
             ):
+
                 transaction_obj.cheque_number = (
                     cheque_number
                 )
@@ -1281,6 +1508,7 @@ def process_statement(statement):
                 transaction_obj,
                 "transaction_remarks"
             ):
+
                 transaction_obj.transaction_remarks = (
                     description
                 )
@@ -1290,12 +1518,55 @@ def process_statement(statement):
             )
 
         # ----------------------------------------------------
+        # Final validation before bulk insert
+        # ----------------------------------------------------
+
+        for transaction in created_transactions:
+
+            if not transaction.category:
+
+                transaction.category = "Others"
+
+            if not transaction.merchant:
+
+                transaction.merchant = (
+                    "Unknown Merchant"
+                )
+
+            if transaction.ai_confidence is None:
+
+                transaction.ai_confidence = 0
+
+            if not transaction.ai_reason:
+
+                transaction.ai_reason = (
+                    "No AI reason provided."
+                )
+
+        print(
+            "=============================================="
+        )
+
+        print(
+            "Prepared transactions:",
+            len(created_transactions)
+        )
+
+        print(
+            "Starting Transaction bulk insert..."
+        )
+
+        # ----------------------------------------------------
         # Bulk insert
         # ----------------------------------------------------
 
         Transaction.objects.bulk_create(
             created_transactions,
             batch_size=500
+        )
+
+        print(
+            "Transaction bulk insert completed."
         )
 
         # ----------------------------------------------------
@@ -1358,6 +1629,28 @@ def process_statement(statement):
                 "status",
                 "error_message"
             ]
+        )
+
+        print(
+            "=============================================="
+        )
+
+        print(
+            "STATEMENT PROCESSING COMPLETED"
+        )
+
+        print(
+            "Statement ID:",
+            statement.id
+        )
+
+        print(
+            "Total Transactions:",
+            statement.total_transactions
+        )
+
+        print(
+            "=============================================="
         )
 
         return analysis
