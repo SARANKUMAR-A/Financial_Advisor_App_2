@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 
 import {
     ResponsiveContainer,
@@ -31,13 +32,24 @@ import {
     FiTrendingDown,
     FiAlertCircle,
     FiCheckCircle,
+    FiFileText,
+    FiCalendar,
+    FiClock,
+    FiLock,
+    FiCpu,
+    FiRefreshCw,
+    FiZap,
 } from "react-icons/fi";
 
 import {
     getDashboard,
     uploadBankStatement,
     getStatementStatus,
+    getInsights,
+    generateInsights,
 } from "../services/api";
+
+import API from "../api/axios";
 
 import "./Dashboard.css";
 
@@ -296,6 +308,55 @@ function MonthlyExpenseTooltip({
 
 
 /* =========================================================
+   GREETING & USER HELPERS
+========================================================= */
+
+function getGreeting() {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) {
+        return "Good morning";
+    }
+    if (hour >= 12 && hour < 17) {
+        return "Good afternoon";
+    }
+    return "Good evening";
+}
+
+function formatFirstName(name) {
+    if (!name || typeof name !== "string") return "";
+    const cleanName = name.trim().split(/\s+/)[0];
+    if (!cleanName) return "";
+    return cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
+}
+
+function getStoredFirstName() {
+    try {
+        const storedUser = sessionStorage.getItem("user");
+        if (storedUser) {
+            const parsed = JSON.parse(storedUser);
+            if (parsed?.first_name) {
+                const formatted = formatFirstName(parsed.first_name);
+                if (formatted) return formatted;
+            }
+            if (parsed?.username) {
+                const formatted = formatFirstName(parsed.username);
+                if (formatted) return formatted;
+            }
+        }
+
+        const storedUsername = sessionStorage.getItem("username");
+        if (storedUsername) {
+            const formatted = formatFirstName(storedUsername);
+            if (formatted) return formatted;
+        }
+    } catch (e) {
+        console.error("Error reading stored user name:", e);
+    }
+    return "";
+}
+
+
+/* =========================================================
    DASHBOARD
 ========================================================= */
 
@@ -306,6 +367,9 @@ function Dashboard() {
      * Keep ALL hooks at the top level of the component.
      * Do not put hooks after loading/empty-state returns.
      */
+
+    const [searchParams] = useSearchParams();
+    const queryStatementId = searchParams.get("statement_id") || "";
 
     const [dashboard, setDashboard] = useState(null);
 
@@ -318,12 +382,159 @@ function Dashboard() {
 
     const [error, setError] = useState("");
 
+    const [generatingInsights, setGeneratingInsights] = useState(false);
+    const [insightsOverride, setInsightsOverride] = useState(null);
+    const [insightsError, setInsightsError] = useState("");
+
+    const recentCardRef = useRef(null);
+    const aiCardRef = useRef(null);
+    const aiContentRef = useRef(null);
+    const [visibleTxCount, setVisibleTxCount] = useState(6);
+
+    const [greeting, setGreeting] = useState(getGreeting);
+    const [firstName, setFirstName] = useState(getStoredFirstName);
+
+    const handleGenerateInsights = async () => {
+        try {
+            setGeneratingInsights(true);
+            setInsightsError("");
+            const targetStmtId = queryStatementId || dashboard?.statement?.id || "";
+            const res = await generateInsights(targetStmtId);
+            if (res && res.success) {
+                setInsightsOverride({
+                    summary: res.summary,
+                    recommendations: res.recommendations,
+                    financial_health: res.financial_health,
+                    key_takeaways: res.key_takeaways,
+                    model_used: res.model_used || "llama3.2 (Local Ollama)",
+                    is_local: true,
+                });
+            } else {
+                setInsightsError(res?.message || "Could not generate insights.");
+            }
+        } catch (err) {
+            console.error("Failed to generate AI insights:", err);
+            setInsightsError(
+                err?.message || "Failed to contact local Ollama model. Ensure Ollama is running (`ollama run llama3.2`)."
+            );
+        } finally {
+            setGeneratingInsights(false);
+        }
+    };
+
+    useEffect(() => {
+        setInsightsOverride(null);
+        setInsightsError("");
+    }, [queryStatementId]);
+
+    /* =====================================================
+       DYNAMIC RECENT TRANSACTIONS COUNT
+       Syncs with AI Card height: minimum 6 transactions
+    ===================================================== */
+
+    useEffect(() => {
+        const updateCount = () => {
+            const aiContent = aiContentRef.current || aiCardRef.current;
+            const recentCard = recentCardRef.current;
+            if (!aiContent || !recentCard) {
+                return;
+            }
+
+            // In single-column stacked layout (<= 1200px), default to 6
+            if (window.innerWidth <= 1200) {
+                setVisibleTxCount(6);
+                return;
+            }
+
+            const header = recentCard.querySelector(".card-heading");
+            const headerHeight = header ? header.offsetHeight : 80;
+
+            // Compute available height based on AI card's inner content
+            let availableHeight = 0;
+            if (aiContentRef.current) {
+                availableHeight = aiContentRef.current.offsetHeight - headerHeight;
+            } else if (aiCardRef.current) {
+                availableHeight = aiCardRef.current.offsetHeight - headerHeight - 48;
+            }
+
+            const firstTx = recentCard.querySelector(".transaction");
+            const itemHeight = firstTx && firstTx.offsetHeight > 0 ? firstTx.offsetHeight : 72;
+
+            if (availableHeight > 0 && itemHeight > 0) {
+                const calculated = Math.floor(availableHeight / itemHeight);
+                // Minimum of 6 transactions need to show
+                setVisibleTxCount(Math.max(6, calculated));
+            } else {
+                setVisibleTxCount(6);
+            }
+        };
+
+        // Run on mount / update and slightly after layout stabilizes
+        updateCount();
+        const timer1 = setTimeout(updateCount, 100);
+        const timer2 = setTimeout(updateCount, 400);
+
+        let resizeObserver = null;
+        const targetToObserve = aiContentRef.current || aiCardRef.current;
+        if (typeof ResizeObserver !== "undefined" && targetToObserve) {
+            resizeObserver = new ResizeObserver(() => {
+                updateCount();
+            });
+            resizeObserver.observe(targetToObserve);
+        }
+
+        window.addEventListener("resize", updateCount);
+
+        return () => {
+            clearTimeout(timer1);
+            clearTimeout(timer2);
+            if (resizeObserver) {
+                resizeObserver.disconnect();
+            }
+            window.removeEventListener("resize", updateCount);
+        };
+    }, [dashboard, insightsOverride, generatingInsights]);
+
+    useEffect(() => {
+        const intervalId = setInterval(() => {
+            setGreeting(getGreeting());
+        }, 60000);
+
+        let isMounted = true;
+        async function fetchUserProfile() {
+            try {
+                const response = await API.get("profile/");
+                if (isMounted && response?.data) {
+                    sessionStorage.setItem(
+                        "user",
+                        JSON.stringify(response.data)
+                    );
+                    const name = formatFirstName(
+                        response.data.first_name || response.data.username
+                    );
+                    if (name) {
+                        setFirstName(name);
+                    }
+                }
+            } catch (err) {
+                console.log("Profile fetch for greeting:", err?.message || err);
+            }
+        }
+
+        fetchUserProfile();
+
+        return () => {
+            isMounted = false;
+            clearInterval(intervalId);
+        };
+    }, []);
+
 
     /* =====================================================
        LOAD DASHBOARD
     ===================================================== */
 
-    async function loadDashboard(showLoader = true) {
+    async function loadDashboard(showLoader = true, targetStatementId = queryStatementId) {
 
         try {
 
@@ -333,7 +544,7 @@ function Dashboard() {
 
             setError("");
 
-            const data = await getDashboard();
+            const data = await getDashboard(targetStatementId);
 
             console.log(
                 "Dashboard API response:",
@@ -364,14 +575,14 @@ function Dashboard() {
 
 
     /* =====================================================
-       INITIAL LOAD
+       INITIAL LOAD / ON QUERY PARAM CHANGE
     ===================================================== */
 
     useEffect(() => {
 
-        loadDashboard();
+        loadDashboard(true, queryStatementId);
 
-    }, []);
+    }, [queryStatementId]);
 
 
     /* =====================================================
@@ -433,11 +644,11 @@ function Dashboard() {
 
                 if (
                     currentStatus ===
-                        "PROCESSING" ||
+                    "PROCESSING" ||
                     currentStatus ===
-                        "UPLOADED" ||
+                    "UPLOADED" ||
                     currentStatus ===
-                        "PENDING"
+                    "PENDING"
                 ) {
 
                     setProcessingMessage(
@@ -590,7 +801,7 @@ function Dashboard() {
             );
 
 
-            await loadDashboard(false);
+            await loadDashboard(false, statementId);
 
 
             setProcessingMessage(
@@ -633,6 +844,9 @@ function Dashboard() {
        This prevents the React hook-order error.
     ===================================================== */
 
+    const currentStatement =
+        dashboard?.statement || null;
+
     const cards =
         dashboard?.cards || {};
 
@@ -658,7 +872,7 @@ function Dashboard() {
             : [];
 
     const insights =
-        dashboard?.insights || {};
+        insightsOverride || dashboard?.insights || {};
 
 
     /* =====================================================
@@ -908,10 +1122,9 @@ function Dashboard() {
                     <label
                         htmlFor="statement-upload-empty"
                         className={
-                            `primary-button ${
-                                uploading
-                                    ? "button-disabled"
-                                    : ""
+                            `primary-button ${uploading
+                                ? "button-disabled"
+                                : ""
                             }`
                         }
                     >
@@ -983,7 +1196,7 @@ function Dashboard() {
                     </span>
 
                     <h1>
-                        Good morning, Sarankumar
+                        {greeting}, {firstName || "User"}
                     </h1>
 
                     <p>
@@ -1010,10 +1223,9 @@ function Dashboard() {
                     <label
                         htmlFor="statement-upload"
                         className={
-                            `primary-button ${
-                                uploading
-                                    ? "button-disabled"
-                                    : ""
+                            `primary-button ${uploading
+                                ? "button-disabled"
+                                : ""
                             }`
                         }
                     >
@@ -1079,6 +1291,55 @@ function Dashboard() {
                         {error}
                     </span>
 
+                </div>
+            )}
+
+
+            {/* =================================================
+                ACTIVE STATEMENT DETAILS
+            ================================================= */}
+
+            {currentStatement && (
+                <div className="active-statement-banner">
+                    <div className="statement-banner-main">
+                        <div className="statement-file-icon">
+                            <FiFileText />
+                        </div>
+                        <div className="statement-file-details">
+                            <div className="statement-file-title-row">
+                                <span className="statement-badge">ANALYZED FILE</span>
+                                <h3 className="statement-file-name" title={currentStatement.file_name}>
+                                    {currentStatement.file_name}
+                                </h3>
+                            </div>
+                            <div className="statement-meta-row">
+                                {(currentStatement.from || currentStatement.to) && (
+                                    <span className="statement-meta-pill">
+                                        <FiCalendar />
+                                        <span>
+                                            {currentStatement.from ? new Date(currentStatement.from).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : ""}
+                                            {currentStatement.from && currentStatement.to ? " – " : ""}
+                                            {currentStatement.to ? new Date(currentStatement.to).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : ""}
+                                        </span>
+                                    </span>
+                                )}
+                                {currentStatement.uploaded_at && (
+                                    <span className="statement-meta-pill">
+                                        <FiClock />
+                                        <span>
+                                            Uploaded {new Date(currentStatement.uploaded_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                                        </span>
+                                    </span>
+                                )}
+                                {cards.transaction_count !== undefined && (
+                                    <span className="statement-meta-pill highlight">
+                                        <FiActivity />
+                                        <span>{cards.transaction_count} Transactions</span>
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -1430,8 +1691,8 @@ function Dashboard() {
                                                     key={`category-${index}`}
                                                     fill={
                                                         CATEGORY_COLORS[
-                                                            index %
-                                                            CATEGORY_COLORS.length
+                                                        index %
+                                                        CATEGORY_COLORS.length
                                                         ]
                                                     }
                                                 />
@@ -1508,8 +1769,8 @@ function Dashboard() {
                                                 style={{
                                                     background:
                                                         CATEGORY_COLORS[
-                                                            index %
-                                                            CATEGORY_COLORS.length
+                                                        index %
+                                                        CATEGORY_COLORS.length
                                                         ],
                                                 }}
                                             />
@@ -1773,7 +2034,7 @@ function Dashboard() {
                 CATEGORY BREAKDOWN
             ================================================= */}
 
-            <div className="dashboard-card">
+            <div className="dashboard-card category-breakdown-card">
 
                 <div className="card-heading">
 
@@ -1923,7 +2184,7 @@ function Dashboard() {
                     RECENT TRANSACTIONS
                 ================================================= */}
 
-                <div className="dashboard-card">
+                <div className="dashboard-card recent-transactions-card" ref={recentCardRef}>
 
                     <div className="card-heading">
 
@@ -1944,8 +2205,12 @@ function Dashboard() {
                         </div>
 
 
-                        <a
-                            href="/transactions"
+                        <Link
+                            to={
+                                currentStatement?.id
+                                    ? `/transactions?statement_id=${currentStatement.id}`
+                                    : "/transactions"
+                            }
                             className="view-all"
                         >
 
@@ -1953,17 +2218,17 @@ function Dashboard() {
 
                             <FiArrowRight />
 
-                        </a>
+                        </Link>
 
                     </div>
 
 
-                    <div>
+                    <div className="recent-transactions-list">
 
                         {recentTransactions.length > 0 ? (
 
                             recentTransactions
-                                .slice(0, 6)
+                                .slice(0, visibleTxCount)
                                 .map(
                                     (
                                         transaction
@@ -1998,91 +2263,139 @@ function Dashboard() {
                     AI INSIGHTS
                 ================================================= */}
 
-                <div className="dashboard-card ai-card">
+                <div className="dashboard-card ai-card" ref={aiCardRef}>
 
-                    <div className="ai-header">
+                    <div className="ai-card-inner" ref={aiContentRef}>
 
-                        <div className="ai-icon">
-                            ✦
-                        </div>
+                        <div className="card-heading">
 
-                        <div>
+                            <div>
 
-                            <span className="card-label">
-                                SMART ANALYSIS
-                            </span>
+                                <div className="ai-heading-eyebrow-row">
+                                    <span className="card-label">
+                                        SMART ANALYSIS
+                                    </span>
+                                    <span
+                                        className="ai-privacy-pill"
+                                        title="Processed 100% locally on your machine. No data is sent to external servers or the internet."
+                                    >
+                                        <FiLock /> 100% Local & Private
+                                    </span>
+                                    <span
+                                        className="ai-model-pill"
+                                        title="Running on local Ollama engine"
+                                    >
+                                        <FiCpu /> llama3.2
+                                    </span>
+                                </div>
 
-                            <h3>
-                                AI Financial Insights
-                            </h3>
+                                <h3>
+                                    AI Financial Insights
+                                </h3>
 
-                        </div>
-
-                    </div>
-
-
-                    <p className="ai-subtitle">
-
-                        Personalized observations from
-                        your bank statement.
-
-                    </p>
-
-
-                    <div className="ai-summary">
-
-                        {insights?.summary ||
-                            "No AI summary available."}
-
-                    </div>
-
-
-                    {Array.isArray(
-                        insights?.recommendations
-                    ) &&
-                        insights.recommendations.length >
-                            0 && (
-
-                            <div className="recommendations">
-
-                                <h4>
-                                    Recommendations
-                                </h4>
-
-                                <ul>
-
-                                    {insights.recommendations
-                                        .slice(0, 4)
-                                        .map(
-                                            (
-                                                recommendation,
-                                                index
-                                            ) => (
-
-                                                <li
-                                                    key={
-                                                        index
-                                                    }
-                                                >
-
-                                                    <span>
-                                                        <FiCheckCircle />
-                                                    </span>
-
-                                                    {
-                                                        recommendation
-                                                    }
-
-                                                </li>
-
-                                            )
-                                        )}
-
-                                </ul>
+                                <p>
+                                    Personalized financial observations & advice from your local Ollama AI model.
+                                </p>
 
                             </div>
 
+                            <div className="ai-header-actions">
+                                <button
+                                    type="button"
+                                    className="ai-refresh-btn"
+                                    onClick={handleGenerateInsights}
+                                    disabled={generatingInsights}
+                                    title="Analyze / Regenerate financial insights with local Ollama"
+                                >
+                                    <FiRefreshCw className={generatingInsights ? "spin" : ""} />
+                                    <span>{generatingInsights ? "Analyzing..." : "Analyze with Local AI"}</span>
+                                </button>
+                                <div className="ai-icon-badge">
+                                    ✦
+                                </div>
+                            </div>
+
+                        </div>
+
+
+                        {insightsError && (
+                            <div className="ai-error-banner">
+                                <FiAlertCircle />
+                                <span>{insightsError}</span>
+                            </div>
                         )}
+
+
+                        {generatingInsights ? (
+                            <div className="ai-generating-state">
+                                <div className="ai-pulse-spinner"></div>
+                                <div className="ai-generating-text">
+                                    <strong>Local Ollama (llama3.2) is analyzing your finances...</strong>
+                                    <span>Evaluating income, expenses, cash flow ratio & spending patterns strictly offline.</span>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                {insights?.financial_health && (
+                                    <div className="ai-health-row">
+                                        <span className="ai-health-label">Financial Health:</span>
+                                        <span className={`ai-health-badge health-${String(insights.financial_health).toLowerCase().replace(/\s+/g, "-")}`}>
+                                            <FiActivity /> {insights.financial_health}
+                                        </span>
+                                    </div>
+                                )}
+
+                                {Array.isArray(insights?.key_takeaways) && insights.key_takeaways.length > 0 && (
+                                    <div className="ai-takeaways-list">
+                                        {insights.key_takeaways.map((takeaway, idx) => (
+                                            <span key={idx} className="ai-takeaway-pill">
+                                                • {takeaway}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+
+                                <div className="ai-summary">
+                                    {insights?.summary ? (
+                                        <p className="ai-summary-text">{insights.summary}</p>
+                                    ) : (
+                                        <div className="ai-empty-prompt">
+                                            <p>No AI summary generated yet for this statement.</p>
+                                            <button
+                                                type="button"
+                                                className="primary-button ai-analyze-prompt-btn"
+                                                onClick={handleGenerateInsights}
+                                                disabled={generatingInsights}
+                                            >
+                                                <FiZap /> Generate Insights with Local AI
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {Array.isArray(insights?.recommendations) && insights.recommendations.length > 0 && (
+                                    <div className="recommendations">
+                                        <h4>
+                                            Personalized Recommendations
+                                        </h4>
+                                        <ul>
+                                            {insights.recommendations.slice(0, 5).map((recommendation, index) => (
+                                                <li key={index}>
+                                                    <span>
+                                                        <FiCheckCircle />
+                                                    </span>
+                                                    <div>
+                                                        {typeof recommendation === "string" ? recommendation : recommendation.text || JSON.stringify(recommendation)}
+                                                    </div>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+                            </>
+                        )}
+
+                    </div>
 
                 </div>
 
@@ -2198,10 +2511,9 @@ function Transaction({
 
             <span
                 className={
-                    `transaction-icon ${
-                        isCredit
-                            ? "credit"
-                            : "debit"
+                    `transaction-icon ${isCredit
+                        ? "credit"
+                        : "debit"
                     }`
                 }
             >

@@ -22,6 +22,7 @@ from .serializers import (
 
 class SignupView(APIView):
 
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -54,6 +55,7 @@ class SignupView(APIView):
 
 class LoginView(APIView):
 
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -77,6 +79,7 @@ class LoginView(APIView):
 
 class ForgotPasswordView(APIView):
 
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -145,6 +148,7 @@ class ForgotPasswordView(APIView):
 
 class ResetPasswordView(APIView):
 
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request):

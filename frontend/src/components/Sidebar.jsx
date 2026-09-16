@@ -11,6 +11,7 @@ import {
     FiLogOut,
     FiChevronLeft,
     FiChevronRight,
+    FiClock,
 } from "react-icons/fi";
 
 import "../styles/sidebar.css";
@@ -25,19 +26,14 @@ function Sidebar({ collapsed, setCollapsed }) {
             icon: <FiHome />,
         },
         {
-            name: "Financial Data",
-            path: "/financial-data",
-            icon: <FiDollarSign />,
-        },
-        {
             name: "Transactions",
             path: "/transactions",
             icon: <FiCreditCard />,
         },
         {
-            name: "Reports",
-            path: "/reports",
-            icon: <FiBarChart2 />,
+            name: "History",
+            path: "/history-data",
+            icon: <FiClock />,
         },
         {
             name: "Profile",
@@ -52,6 +48,10 @@ function Sidebar({ collapsed, setCollapsed }) {
     ];
 
     const handleLogout = () => {
+        sessionStorage.removeItem("access_token");
+        sessionStorage.removeItem("refresh_token");
+        sessionStorage.removeItem("user");
+        sessionStorage.removeItem("username");
         localStorage.removeItem("access_token");
         localStorage.removeItem("refresh_token");
         localStorage.removeItem("user");

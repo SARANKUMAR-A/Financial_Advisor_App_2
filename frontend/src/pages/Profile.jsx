@@ -48,6 +48,8 @@ function Profile() {
 
             console.log("Profile response:", user);
 
+            sessionStorage.setItem("user", JSON.stringify(user));
+
             // Set profile information
             setFormData({
                 first_name: user.first_name || "",
@@ -284,6 +286,8 @@ function Profile() {
 
             const user = response.data.user;
 
+            sessionStorage.setItem("user", JSON.stringify(user));
+
             // ==============================
             // Update Form Data
             // ==============================
@@ -385,9 +389,9 @@ function Profile() {
 
                 <div>
 
-                    <small>
+                    <span className="dashboard-eyebrow">
                         ACCOUNT
-                    </small>
+                    </span>
 
                     <h1>
                         Profile

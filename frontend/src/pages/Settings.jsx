@@ -7,7 +7,9 @@ function Settings() {
 
                 <div>
 
-                    <small>ACCOUNT</small>
+                    <span className="dashboard-eyebrow">
+                        ACCOUNT
+                    </span>
 
                     <h1>Settings</h1>
 

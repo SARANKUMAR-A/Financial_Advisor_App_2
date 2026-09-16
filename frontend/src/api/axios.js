@@ -12,15 +12,17 @@ const API = axios.create({
 API.interceptors.request.use(
     (config) => {
 
+        const isAuthEndpoint =
+            config.url?.includes("login/") ||
+            config.url?.includes("signup/") ||
+            config.url?.includes("forgot-password/") ||
+            config.url?.includes("reset-password/") ||
+            config.url?.includes("token/refresh/");
+
         const token =
             sessionStorage.getItem("access_token");
 
-        console.log(
-            "Axios Access Token:",
-            token
-        );
-
-        if (token) {
+        if (token && !isAuthEndpoint) {
 
             config.headers = config.headers || {};
 

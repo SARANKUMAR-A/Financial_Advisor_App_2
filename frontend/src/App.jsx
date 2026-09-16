@@ -1,9 +1,10 @@
-import React from "react";
+import React, { useEffect } from "react";
 import {
     BrowserRouter,
     Routes,
     Route,
-    Navigate
+    Navigate,
+    useLocation
 } from "react-router-dom";
 
 import Login from "./pages/Login";
@@ -13,6 +14,7 @@ import ResetPassword from "./pages/ResetPassword";
 
 import Dashboard from "./pages/Dashboard";
 import FinancialData from "./pages/FinancialData";
+import HistoryData from "./pages/HistoryData";
 import Profile from "./pages/Profile";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
@@ -55,6 +57,31 @@ function AuthLayout({ children }) {
 
 
 // ==========================================
+// SCROLL TO TOP ON ROUTE CHANGE
+// ==========================================
+
+function ScrollToTop() {
+    const { pathname, search } = useLocation();
+
+    useEffect(() => {
+        window.scrollTo({
+            top: 0,
+            left: 0,
+            behavior: "instant",
+        });
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+        const mainContent = document.querySelector(".main-content");
+        if (mainContent) {
+            mainContent.scrollTop = 0;
+        }
+    }, [pathname, search]);
+
+    return null;
+}
+
+
+// ==========================================
 // APP
 // ==========================================
 
@@ -62,6 +89,7 @@ function App() {
 
     return (
         <BrowserRouter>
+            <ScrollToTop />
 
             <Routes>
 
@@ -148,6 +176,27 @@ function App() {
                         element={
                             <AppLayout>
                                 <Transactions />
+                            </AppLayout>
+                        }
+                    />
+
+
+                    {/* History Data */}
+
+                    <Route
+                        path="/history-data"
+                        element={
+                            <AppLayout>
+                                <HistoryData />
+                            </AppLayout>
+                        }
+                    />
+
+                    <Route
+                        path="/history"
+                        element={
+                            <AppLayout>
+                                <HistoryData />
                             </AppLayout>
                         }
                     />

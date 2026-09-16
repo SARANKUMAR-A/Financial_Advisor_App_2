@@ -72,7 +72,15 @@ def clean_amount(value):
         .strip()
     )
 
-    if value in ["", "-", "--", "NA", "N/A", "nan", "None"]:
+    if value in [
+        "",
+        "-",
+        "--",
+        "NA",
+        "N/A",
+        "nan",
+        "None",
+    ]:
         return Decimal("0")
 
     # Handle brackets as negative numbers
@@ -82,7 +90,11 @@ def clean_amount(value):
     try:
         return Decimal(value)
 
-    except (InvalidOperation, ValueError, TypeError):
+    except (
+        InvalidOperation,
+        ValueError,
+        TypeError,
+    ):
         return Decimal("0")
 
 
@@ -149,14 +161,14 @@ def normalize_column_name(column):
     column = re.sub(
         r"[^a-z0-9]+",
         "_",
-        column
+        column,
     )
 
     # Remove duplicate underscores
     column = re.sub(
         r"_+",
         "_",
-        column
+        column,
     )
 
     return column.strip("_")
@@ -183,16 +195,14 @@ def find_column(df, possible_names):
         for name in possible_names
     ]
 
+    # Exact matching
     for name in normalized_possible_names:
-
         if name in normalized:
             return normalized[name]
 
     # Partial matching
     for normalized_column, original_column in normalized.items():
-
         for possible_name in normalized_possible_names:
-
             if (
                 possible_name in normalized_column
                 or normalized_column in possible_name
@@ -226,7 +236,6 @@ def find_transaction_header_row(raw_df):
 
         row = raw_df.iloc[index]
 
-        # Convert every cell to normalized text
         values = [
             normalize_column_name(value)
             for value in row.tolist()
@@ -244,30 +253,23 @@ def find_transaction_header_row(raw_df):
             f"Checking Excel row {index}: {row_text}"
         )
 
-        # ----------------------------------------------------
-        # ICICI header detection
-        # ----------------------------------------------------
-
         has_transaction_date = (
-            "transaction_date"
-            in values
+            "transaction_date" in values
         )
 
         has_value_date = (
-            "value_date"
-            in values
+            "value_date" in values
         )
 
         has_transaction_remarks = (
-            "transaction_remarks"
-            in values
+            "transaction_remarks" in values
         )
 
         has_withdrawal = any(
             value in [
                 "withdrawal_amount_inr",
                 "withdrawal_amount",
-                "withdrawal"
+                "withdrawal",
             ]
             for value in values
         )
@@ -276,7 +278,7 @@ def find_transaction_header_row(raw_df):
             value in [
                 "deposit_amount_inr",
                 "deposit_amount",
-                "deposit"
+                "deposit",
             ]
             for value in values
         )
@@ -284,13 +286,16 @@ def find_transaction_header_row(raw_df):
         has_balance = any(
             value in [
                 "balance_inr",
-                "balance"
+                "balance",
             ]
             for value in values
         )
 
         if (
-            has_transaction_date
+            (
+                has_transaction_date
+                or has_value_date
+            )
             and has_transaction_remarks
             and has_withdrawal
             and has_deposit
@@ -325,7 +330,7 @@ def read_excel_file(file_path):
             return pd.read_excel(
                 file_path,
                 header=None,
-                engine="xlrd"
+                engine="xlrd",
             )
 
         except ImportError as error:
@@ -341,7 +346,7 @@ def read_excel_file(file_path):
         return pd.read_excel(
             file_path,
             header=None,
-            engine="openpyxl"
+            engine="openpyxl",
         )
 
     else:
@@ -365,10 +370,8 @@ def parse_transaction_date(value):
         return None
 
     try:
-
         if pd.isna(value):
             return None
-
     except Exception:
         pass
 
@@ -377,7 +380,7 @@ def parse_transaction_date(value):
         parsed = pd.to_datetime(
             value,
             errors="coerce",
-            dayfirst=True
+            dayfirst=True,
         )
 
         if pd.isna(parsed):
@@ -386,7 +389,6 @@ def parse_transaction_date(value):
         return parsed.date()
 
     except Exception:
-
         return None
 
 
@@ -415,11 +417,10 @@ def extract_account_details(raw_df):
             if not text:
                 continue
 
-            # Detect account number
             account_match = re.search(
                 r"(\d{8,20})\s*\(\s*INR\s*\)",
                 text,
-                flags=re.IGNORECASE
+                flags=re.IGNORECASE,
             )
 
             if account_match:
@@ -432,7 +433,7 @@ def extract_account_details(raw_df):
                     r"\d{8,20}\s*\(\s*INR\s*\)\s*-?\s*",
                     "",
                     text,
-                    flags=re.IGNORECASE
+                    flags=re.IGNORECASE,
                 ).strip()
 
                 if remaining:
@@ -477,7 +478,7 @@ def extract_statement_range(raw_df):
 
             found_dates = re.findall(
                 r"\b\d{1,2}/\d{1,2}/\d{4}\b",
-                text
+                text,
             )
 
             for date_text in found_dates:
@@ -490,10 +491,9 @@ def extract_statement_range(raw_df):
                     dates.append(parsed)
 
     if len(dates) >= 2:
-
         return (
             min(dates),
-            max(dates)
+            max(dates),
         )
 
     return None, None
@@ -507,12 +507,8 @@ def prepare_icici_dataframe(file_path):
 
     print(
         "Reading Excel file:",
-        file_path
+        file_path,
     )
-
-    # --------------------------------------------------------
-    # Read raw Excel
-    # --------------------------------------------------------
 
     raw_df = read_excel_file(
         file_path
@@ -520,7 +516,7 @@ def prepare_icici_dataframe(file_path):
 
     print(
         "Raw Excel shape:",
-        raw_df.shape
+        raw_df.shape,
     )
 
     # Remove completely empty rows
@@ -531,7 +527,6 @@ def prepare_icici_dataframe(file_path):
     )
 
     if raw_df.empty:
-
         raise ValueError(
             "The uploaded Excel file is empty."
         )
@@ -550,14 +545,13 @@ def prepare_icici_dataframe(file_path):
             "Unable to find transaction header."
         )
 
-        # Print first 30 rows for debugging
         for index in range(
             min(30, len(raw_df))
         ):
 
             print(
                 f"ROW {index}:",
-                raw_df.iloc[index].tolist()
+                raw_df.iloc[index].tolist(),
             )
 
         raise ValueError(
@@ -571,12 +565,8 @@ def prepare_icici_dataframe(file_path):
 
     print(
         "Transaction header row:",
-        header_row
+        header_row,
     )
-
-    # --------------------------------------------------------
-    # Extract header
-    # --------------------------------------------------------
 
     header_values = raw_df.iloc[
         header_row
@@ -584,75 +574,73 @@ def prepare_icici_dataframe(file_path):
 
     print(
         "Excel headers:",
-        header_values
+        header_values,
     )
 
-    # --------------------------------------------------------
     # Data starts after header
-    # --------------------------------------------------------
-
     data_df = raw_df.iloc[
         header_row + 1:
     ].copy()
 
-    # Assign headers
+    # Assign normalized headers
     data_df.columns = [
-        normalize_column_name(
-            column
-        )
+        normalize_column_name(column)
         for column in header_values
     ]
 
     # Remove empty columns
     data_df = data_df.dropna(
         axis=1,
-        how="all"
+        how="all",
     )
 
     # Remove duplicate columns
     data_df = data_df.loc[
         :,
-        ~data_df.columns.duplicated()
+        ~data_df.columns.duplicated(),
     ]
 
     print(
         "Normalized headers:",
-        list(data_df.columns)
+        list(data_df.columns),
     )
 
     # --------------------------------------------------------
-    # Locate columns directly
+    # Locate columns
     # --------------------------------------------------------
 
     date_column = find_column(
         data_df,
         [
             "transaction_date",
-            "transaction_date_"
-        ]
+            "transaction_date_",
+            "date",
+        ],
     )
 
     value_date_column = find_column(
         data_df,
         [
-            "value_date"
-        ]
+            "value_date",
+        ],
     )
 
     serial_column = find_column(
         data_df,
         [
             "s_no",
-            "sno"
-        ]
+            "sno",
+            "serial_number",
+        ],
     )
 
     cheque_column = find_column(
         data_df,
         [
             "cheque_number",
-            "cheque_no"
-        ]
+            "cheque_no",
+            "cheque",
+        ],
     )
 
     description_column = find_column(
@@ -660,8 +648,9 @@ def prepare_icici_dataframe(file_path):
         [
             "transaction_remarks",
             "transaction_remark",
-            "remarks"
-        ]
+            "remarks",
+            "description",
+        ],
     )
 
     debit_column = find_column(
@@ -669,8 +658,9 @@ def prepare_icici_dataframe(file_path):
         [
             "withdrawal_amount_inr",
             "withdrawal_amount",
-            "withdrawal"
-        ]
+            "withdrawal",
+            "debit",
+        ],
     )
 
     credit_column = find_column(
@@ -678,68 +668,34 @@ def prepare_icici_dataframe(file_path):
         [
             "deposit_amount_inr",
             "deposit_amount",
-            "deposit"
-        ]
+            "deposit",
+            "credit",
+        ],
     )
 
     balance_column = find_column(
         data_df,
         [
             "balance_inr",
-            "balance"
-        ]
+            "balance",
+        ],
     )
 
-    print(
-        "Detected columns:"
-    )
-
-    print(
-        "date_column:",
-        date_column
-    )
-
-    print(
-        "value_date_column:",
-        value_date_column
-    )
-
-    print(
-        "serial_column:",
-        serial_column
-    )
-
-    print(
-        "cheque_column:",
-        cheque_column
-    )
-
-    print(
-        "description_column:",
-        description_column
-    )
-
-    print(
-        "debit_column:",
-        debit_column
-    )
-
-    print(
-        "credit_column:",
-        credit_column
-    )
-
-    print(
-        "balance_column:",
-        balance_column
-    )
+    print("Detected columns:")
+    print("date_column:", date_column)
+    print("value_date_column:", value_date_column)
+    print("serial_column:", serial_column)
+    print("cheque_column:", cheque_column)
+    print("description_column:", description_column)
+    print("debit_column:", debit_column)
+    print("credit_column:", credit_column)
+    print("balance_column:", balance_column)
 
     # --------------------------------------------------------
     # Validate
     # --------------------------------------------------------
 
     if not date_column:
-
         raise ValueError(
             "Transaction Date column not found "
             "in the uploaded XLS. "
@@ -747,7 +703,6 @@ def prepare_icici_dataframe(file_path):
         )
 
     if not description_column:
-
         raise ValueError(
             "Transaction Remarks column not found "
             "in the uploaded XLS. "
@@ -755,14 +710,12 @@ def prepare_icici_dataframe(file_path):
         )
 
     if not debit_column and not credit_column:
-
         raise ValueError(
             "Withdrawal/Deposit columns not found. "
             f"Available columns: {list(data_df.columns)}"
         )
 
     if not balance_column:
-
         raise ValueError(
             "Balance column not found. "
             f"Available columns: {list(data_df.columns)}"
@@ -778,40 +731,22 @@ def prepare_icici_dataframe(file_path):
     }
 
     if value_date_column:
-
-        rename_map[
-            value_date_column
-        ] = "value_date"
+        rename_map[value_date_column] = "value_date"
 
     if serial_column:
-
-        rename_map[
-            serial_column
-        ] = "serial_number"
+        rename_map[serial_column] = "serial_number"
 
     if cheque_column:
-
-        rename_map[
-            cheque_column
-        ] = "cheque_number"
+        rename_map[cheque_column] = "cheque_number"
 
     if debit_column:
-
-        rename_map[
-            debit_column
-        ] = "debit"
+        rename_map[debit_column] = "debit"
 
     if credit_column:
-
-        rename_map[
-            credit_column
-        ] = "credit"
+        rename_map[credit_column] = "credit"
 
     if balance_column:
-
-        rename_map[
-            balance_column
-        ] = "balance"
+        rename_map[balance_column] = "balance"
 
     data_df = data_df.rename(
         columns=rename_map
@@ -834,12 +769,9 @@ def prepare_icici_dataframe(file_path):
             "legends used in account statement"
             in row_text
         ):
-
             break
 
-        valid_indexes.append(
-            index
-        )
+        valid_indexes.append(index)
 
     data_df = data_df.loc[
         valid_indexes
@@ -854,54 +786,35 @@ def prepare_icici_dataframe(file_path):
     for _, row in data_df.iterrows():
 
         transaction_date = parse_transaction_date(
-            row.get(
-                "transaction_date"
-            )
+            row.get("transaction_date")
         )
 
         value_date = parse_transaction_date(
-            row.get(
-                "value_date"
-            )
+            row.get("value_date")
         )
 
         description = clean_text(
-            row.get(
-                "description"
-            )
+            row.get("description")
         )
 
         serial_number = clean_text(
-            row.get(
-                "serial_number"
-            )
+            row.get("serial_number")
         )
 
         cheque_number = clean_text(
-            row.get(
-                "cheque_number"
-            )
+            row.get("cheque_number")
         )
 
         debit = clean_amount(
-            row.get(
-                "debit",
-                0
-            )
+            row.get("debit", 0)
         )
 
         credit = clean_amount(
-            row.get(
-                "credit",
-                0
-            )
+            row.get("credit", 0)
         )
 
         balance = clean_amount(
-            row.get(
-                "balance",
-                0
-            )
+            row.get("balance", 0)
         )
 
         # ----------------------------------------------------
@@ -921,52 +834,32 @@ def prepare_icici_dataframe(file_path):
 
             if cleaned_rows:
 
-                cleaned_rows[-1][
-                    "description"
-                ] = (
-                    cleaned_rows[-1][
-                        "description"
-                    ]
+                cleaned_rows[-1]["description"] = (
+                    cleaned_rows[-1]["description"]
                     + " "
                     + description
                 ).strip()
 
             continue
 
-        # ----------------------------------------------------
         # Ignore invalid rows
-        # ----------------------------------------------------
-
         if transaction_date is None:
-
             continue
-
-        # ----------------------------------------------------
-        # Add valid transaction
-        # ----------------------------------------------------
 
         cleaned_rows.append(
             {
                 "serial_number": serial_number,
-
                 "value_date": value_date,
-
                 "transaction_date": transaction_date,
-
                 "cheque_number": cheque_number,
-
                 "description": description,
-
                 "debit": debit,
-
                 "credit": credit,
-
                 "balance": balance,
             }
         )
 
     if not cleaned_rows:
-
         raise ValueError(
             "No valid transactions were found "
             "in the uploaded XLS."
@@ -978,51 +871,621 @@ def prepare_icici_dataframe(file_path):
 
     print(
         "Successfully parsed transactions:",
-        len(result_df)
+        len(result_df),
     )
 
     return result_df
 
 
 # ============================================================
-# SAFE AI CATEGORIZATION
+# MERCHANT EXTRACTION
+# ============================================================
+
+def extract_merchant_name(description):
+    """
+    Extract a readable merchant name from ICICI UPI remarks.
+
+    Examples:
+
+        UPI/Burger Kin/burgerking.bdp/Payment fr/...
+        -> Burger Kin
+
+        UPI/Green Plus/Vyapar.1767727/Medicine/...
+        -> Green Plus
+
+        UPI/Airtel/...
+        -> Airtel
+    """
+
+    text = clean_text(description)
+
+    if not text:
+        return "Unknown Merchant"
+
+    parts = [
+        part.strip()
+        for part in text.split("/")
+        if part and part.strip()
+    ]
+
+    if not parts:
+        return "Unknown Merchant"
+
+    # Remove UPI prefix
+    if parts[0].upper() in [
+        "UPI",
+        "IMPS",
+        "NEFT",
+        "RTGS",
+    ]:
+        parts = parts[1:]
+
+    if not parts:
+        return "Unknown Merchant"
+
+    merchant = parts[0].strip()
+
+    invalid_merchants = {
+        "payment",
+        "payment fr",
+        "payment for",
+        "upi",
+        "web upi",
+        "unknown",
+        "unknown transaction",
+        "transfer",
+        "fund transfer",
+    }
+
+    if merchant.lower() in invalid_merchants:
+        return "Unknown Merchant"
+
+    # Remove unwanted technical prefixes
+    merchant = re.sub(
+        r"^(mr|mrs|ms|dr)\.?\s+",
+        "",
+        merchant,
+        flags=re.IGNORECASE,
+    )
+
+    return merchant.title()
+
+
+# ============================================================
+# RULE-BASED CATEGORY DETECTION
+# ============================================================
+
+def get_rule_based_category(
+    description,
+    transaction_type="DEBIT",
+):
+    """
+    Categorize transactions using deterministic rules.
+
+    This function is based on the transaction descriptions
+    commonly present in the uploaded ICICI XLS.
+
+    Rule-based categorization is executed before Ollama.
+    """
+
+    text = clean_text(description).lower()
+    transaction_type = clean_text(
+        transaction_type
+    ).upper()
+
+    if not text:
+        return None
+
+    # Normalize separators and repeated spaces
+    normalized_text = re.sub(
+        r"[^a-z0-9]+",
+        " ",
+        text,
+    )
+
+    normalized_text = re.sub(
+        r"\s+",
+        " ",
+        normalized_text,
+    ).strip()
+
+    # --------------------------------------------------------
+    # CREDIT TRANSACTIONS
+    # --------------------------------------------------------
+
+    if transaction_type == "CREDIT":
+
+        if any(
+            keyword in normalized_text
+            for keyword in [
+                "salary",
+                "salary credit",
+                "sal credit",
+                "payroll",
+                "stipend",
+                "income",
+            ]
+        ):
+            return "Income"
+
+        if any(
+            keyword in normalized_text
+            for keyword in [
+                "refund",
+                "cashback",
+                "cash back",
+                "reversal",
+                "reverted",
+            ]
+        ):
+            return "Refunds & Cashback"
+
+        return "Personal Transfers"
+
+    # --------------------------------------------------------
+    # RENT / HOUSING
+    # --------------------------------------------------------
+
+    if any(
+        keyword in normalized_text
+        for keyword in [
+            "rent",
+            "house rent",
+            "home rent",
+            "rental",
+        ]
+    ):
+        return "Rent & Housing"
+
+    # --------------------------------------------------------
+    # LOAN / EMI
+    # --------------------------------------------------------
+
+    if any(
+        keyword in normalized_text
+        for keyword in [
+            "loan",
+            "emi",
+            "loan repayment",
+            "loan payment",
+            "repayment",
+        ]
+    ):
+        return "Loan & EMI"
+
+    # --------------------------------------------------------
+    # BILLS / RECHARGE / TELECOM
+    # --------------------------------------------------------
+
+    if any(
+        keyword in normalized_text
+        for keyword in [
+            "airtel",
+            "jio recharge",
+            "jio",
+            "mobile recharge",
+            "recharge",
+            "broadband",
+            "internet bill",
+            "electricity",
+            "electricity bill",
+            "water bill",
+            "gas bill",
+            "bill payment",
+            "bbps",
+            "bpay",
+            "phone bill",
+            "telephone",
+        ]
+    ):
+        return "Bills & Recharge"
+
+    # --------------------------------------------------------
+    # TRANSPORTATION
+    # --------------------------------------------------------
+
+    if any(
+        keyword in normalized_text
+        for keyword in [
+            "petrol",
+            "diesel",
+            "fuel",
+            "hindustan petro",
+            "hindustan petroleum",
+            "hpcl",
+            "bharat petroleum",
+            "indian oil",
+            "shell petrol",
+            "cmrl",
+            "chennai metro",
+            "metro rail",
+            "metro",
+            "indian railway",
+            "indian rai",
+            "railway",
+            "train",
+            "uber",
+            "ola",
+            "rapido",
+            "bus",
+            "parking",
+            "toll",
+            "transport",
+        ]
+    ):
+        return "Transportation"
+
+    # --------------------------------------------------------
+    # HEALTHCARE / MEDICAL
+    # --------------------------------------------------------
+
+    if any(
+        keyword in normalized_text
+        for keyword in [
+            "medicine",
+            "medical",
+            "pharmacy",
+            "chemist",
+            "hospital",
+            "doctor",
+            "clinic",
+            "healthcare",
+            "health",
+            "green plus",
+            "medical shop",
+            "apollo pharmacy",
+            "medplus",
+        ]
+    ):
+        return "Healthcare"
+
+    # --------------------------------------------------------
+    # GROCERIES / DAILY ESSENTIALS
+    # Based on descriptions such as:
+    # Milk, Curd, Grocery, Chicken, Fruits, Water, Mavvu
+    # --------------------------------------------------------
+
+    if any(
+        keyword in normalized_text
+        for keyword in [
+            "grocery",
+            "groceries",
+            "milk",
+            "curd",
+            "chicken",
+            "mutton",
+            "fish",
+            "meat",
+            "fruits",
+            "fruit",
+            "vegetable",
+            "vegetables",
+            "tender coconut",
+            "tender coc",
+            "mavvu",
+            "flour",
+            "rice",
+            "dal",
+            "pulses",
+            "oil",
+            "bread",
+            "egg",
+            "eggs",
+            "provision",
+            "provisions",
+            "daily needs",
+            "supermarket",
+            "water",
+        ]
+    ):
+        return "Groceries"
+
+    # --------------------------------------------------------
+    # FOOD / DINING
+    # Based on descriptions such as:
+    # Tea, Waffle, Lunch, Dinner, Snacks, Puff, Cake,
+    # Burger King, Dominos, Laddu, Pori, etc.
+    # --------------------------------------------------------
+
+    if any(
+        keyword in normalized_text
+        for keyword in [
+            "tea",
+            "coffee",
+            "waffle",
+            "lunch",
+            "dinner",
+            "breakfast",
+            "snack",
+            "snacks",
+            "puff",
+            "cake",
+            "burger",
+            "burger king",
+            "dominos",
+            "domino",
+            "pizza",
+            "restaurant",
+            "hotel",
+            "food",
+            "laddu",
+            "ladoo",
+            "pori",
+            "bajji",
+            "samosa",
+            "parotta",
+            "biryani",
+            "juice",
+            "sweet",
+            "bakery",
+            "canteen",
+            "mess",
+            "tiffin",
+            "dosa",
+            "idli",
+            "chapati",
+            "meals",
+        ]
+    ):
+        return "Food & Dining"
+
+    # --------------------------------------------------------
+    # ENTERTAINMENT
+    # --------------------------------------------------------
+
+    if any(
+        keyword in normalized_text
+        for keyword in [
+            "pvr",
+            "inox",
+            "cinema",
+            "movie",
+            "ags cinema",
+            "theatre",
+            "theater",
+            "netflix",
+            "prime video",
+            "hotstar",
+            "spotify",
+            "youtube premium",
+            "entertainment",
+        ]
+    ):
+        return "Entertainment"
+
+    # --------------------------------------------------------
+    # SPORTS / RECREATION
+    # --------------------------------------------------------
+
+    if any(
+        keyword in normalized_text
+        for keyword in [
+            "cricket",
+            "badminton",
+            "football",
+            "sports",
+            "gym",
+            "fitness",
+            "game",
+            "stadium",
+            "sports shop",
+        ]
+    ):
+        return "Sports & Recreation"
+
+    # --------------------------------------------------------
+    # EDUCATION / OFFICE
+    # --------------------------------------------------------
+
+    if any(
+        keyword in normalized_text
+        for keyword in [
+            "xerox",
+            "print",
+            "printing",
+            "stationery",
+            "book",
+            "books",
+            "school",
+            "college",
+            "course",
+            "education",
+            "exam",
+            "office",
+            "photocopy",
+        ]
+    ):
+        return "Education & Office"
+
+    # --------------------------------------------------------
+    # PERSONAL CARE / SHOPPING
+    # --------------------------------------------------------
+
+    if any(
+        keyword in normalized_text
+        for keyword in [
+            "clips",
+            "fancy",
+            "cosmetics",
+            "salon",
+            "parlour",
+            "parlor",
+            "beauty",
+            "haircut",
+            "personal care",
+            "dress",
+            "clothing",
+            "shirt",
+            "pant",
+            "shoe",
+            "footwear",
+            "bag",
+            "watch",
+            "accessories",
+        ]
+    ):
+        return "Personal Care & Shopping"
+
+    # --------------------------------------------------------
+    # HOUSEHOLD / HOME MAINTENANCE
+    # --------------------------------------------------------
+
+    if any(
+        keyword in normalized_text
+        for keyword in [
+            "cocks",
+            "tap",
+            "plumbing",
+            "hardware",
+            "washing powder",
+            "detergent",
+            "cleaning",
+            "soap",
+            "household",
+            "home maintenance",
+            "cleaning powder",
+            "bucket",
+            "broom",
+            "mop",
+            "thoranam",
+            "ilai",
+        ]
+    ):
+        return "Household"
+
+    # --------------------------------------------------------
+    # SHOPPING / RETAIL
+    # --------------------------------------------------------
+
+    if any(
+        keyword in normalized_text
+        for keyword in [
+            "reliance retail",
+            "relianceretail",
+            "jio store",
+            "amazon",
+            "flipkart",
+            "myntra",
+            "shopping",
+            "retail",
+            "mall",
+            "store",
+            "mart",
+            "market",
+        ]
+    ):
+        return "Shopping"
+
+    # --------------------------------------------------------
+    # FLOWERS / POOJA / RELIGIOUS ITEMS
+    # --------------------------------------------------------
+
+    if any(
+        keyword in normalized_text
+        for keyword in [
+            "flower",
+            "flowers",
+            "pooja",
+            "puja",
+            "vilakku",
+            "malai",
+            "garland",
+            "thoranam",
+            "ilai",
+            "temple",
+            "religious",
+        ]
+    ):
+        return "Religious & Personal"
+
+    # --------------------------------------------------------
+    # GENERIC UPI PAYMENT
+    #
+    # Descriptions such as "Payment fr" do not contain enough
+    # merchant information. They are treated as personal
+    # transfers instead of incorrectly forcing everything
+    # into Other.
+    # --------------------------------------------------------
+
+    if any(
+        keyword in normalized_text
+        for keyword in [
+            "payment fr",
+            "payment for",
+            "payment",
+            "upi",
+            "fund transfer",
+            "transfer to",
+            "sent to",
+        ]
+    ):
+        return "Personal Transfers"
+
+    return None
+
+
+# ============================================================
+# SAFE AI CATEGORIZATION WITH RULE-BASED OVERRIDE
 # ============================================================
 
 def get_ai_category(
     description,
-    amount
+    amount,
+    transaction_type="DEBIT",
 ):
     """
-    AI categorization with fallback.
+    Categorize transactions using:
 
-    Ensures the returned values can safely be
-    inserted into NOT NULL database fields.
-
-    Important:
-    Ollama may return:
-
-        "merchant": null
-
-    In Python this becomes:
-
-        merchant = None
-
-    The database does not allow NULL for merchant,
-    so None is converted to "Unknown Merchant".
+    1. Deterministic rules for known XLS descriptions.
+    2. Ollama AI fallback for unknown descriptions.
     """
+
+    description = clean_text(
+        description
+    )
+
+    # --------------------------------------------------------
+    # STEP 1: Rule-based categorization
+    # --------------------------------------------------------
+
+    rule_based_category = get_rule_based_category(
+        description=description,
+        transaction_type=transaction_type,
+    )
+
+    if rule_based_category:
+
+        print(
+            "Rule-based category:",
+            rule_based_category,
+            "| Description:",
+            description,
+        )
+
+        return {
+            "category": rule_based_category,
+            "merchant": extract_merchant_name(
+                description
+            ),
+            "confidence": 1.0,
+            "reason": (
+                "Categorized using transaction "
+                "description rules."
+            ),
+        }
+
+    # --------------------------------------------------------
+    # STEP 2: Ollama fallback
+    # --------------------------------------------------------
 
     try:
 
         result = categorize_transaction(
             description,
-            amount
+            amount,
         )
 
-        if not isinstance(
-            result,
-            dict
-        ):
-
+        if not isinstance(result, dict):
             raise ValueError(
                 "Invalid AI response."
             )
@@ -1032,27 +1495,54 @@ def get_ai_category(
         # ----------------------------------------------------
 
         category = clean_text(
-            result.get(
-                "category"
-            )
+            result.get("category")
         )
 
         if not category:
+            category = "Other"
 
-            category = "Others"
+        # Normalize common AI category variations
+        category_aliases = {
+            "food": "Food & Dining",
+            "dining": "Food & Dining",
+            "groceries": "Groceries",
+            "grocery": "Groceries",
+            "medical": "Healthcare",
+            "health": "Healthcare",
+            "transport": "Transportation",
+            "travel": "Transportation",
+            "shopping": "Shopping",
+            "entertainment": "Entertainment",
+            "rent": "Rent & Housing",
+            "loan": "Loan & EMI",
+            "emi": "Loan & EMI",
+            "bills": "Bills & Recharge",
+            "recharge": "Bills & Recharge",
+            "other": "Other",
+            "others": "Other",
+        }
+
+        category_key = category.lower().strip()
+
+        if category_key in category_aliases:
+            category = category_aliases[
+                category_key
+            ]
 
         # ----------------------------------------------------
         # MERCHANT
         # ----------------------------------------------------
 
         merchant = clean_text(
-            result.get(
-                "merchant"
-            )
+            result.get("merchant")
         )
 
         if not merchant:
+            merchant = extract_merchant_name(
+                description
+            )
 
+        if not merchant:
             merchant = "Unknown Merchant"
 
         # ----------------------------------------------------
@@ -1060,33 +1550,26 @@ def get_ai_category(
         # ----------------------------------------------------
 
         confidence = result.get(
-            "confidence"
+            "confidence",
+            0,
         )
 
-        if confidence is None:
-
-            confidence = 0
-
         try:
-
             confidence = float(
                 confidence
             )
-
         except (
             ValueError,
-            TypeError
+            TypeError,
         ):
-
             confidence = 0
 
-        # Keep confidence within valid range
         confidence = max(
             0,
             min(
                 confidence,
-                1
-            )
+                1,
+            ),
         )
 
         # ----------------------------------------------------
@@ -1094,44 +1577,13 @@ def get_ai_category(
         # ----------------------------------------------------
 
         reason = clean_text(
-            result.get(
-                "reason"
-            )
+            result.get("reason")
         )
 
         if not reason:
-
             reason = (
-                "No AI reason provided."
+                "Categorized using AI analysis."
             )
-
-        # ----------------------------------------------------
-        # DEBUG
-        # ----------------------------------------------------
-
-        print(
-            "AI categorization result:"
-        )
-
-        print(
-            "  Category:",
-            category
-        )
-
-        print(
-            "  Merchant:",
-            merchant
-        )
-
-        print(
-            "  Confidence:",
-            confidence
-        )
-
-        print(
-            "  Reason:",
-            reason
-        )
 
         return {
             "category": category,
@@ -1144,18 +1596,22 @@ def get_ai_category(
 
         print(
             "AI categorization failed:",
-            error
+            error,
         )
 
-        # ----------------------------------------------------
-        # Complete fallback
-        # ----------------------------------------------------
-
         return {
-            "category": "Others",
-            "merchant": "Unknown Merchant",
+            "category": "Other",
+            "merchant": (
+                extract_merchant_name(
+                    description
+                )
+                or "Unknown Merchant"
+            ),
             "confidence": 0,
-            "reason": "AI categorization unavailable.",
+            "reason": (
+                "AI categorization failed; "
+                "fallback category used."
+            ),
         }
 
 
@@ -1169,7 +1625,7 @@ def process_statement(statement):
 
     statement.save(
         update_fields=[
-            "status"
+            "status",
         ]
     )
 
@@ -1224,14 +1680,14 @@ def process_statement(statement):
             "Account Number:",
             account_details.get(
                 "account_number"
-            )
+            ),
         )
 
         print(
             "Account Holder:",
             account_details.get(
                 "account_holder"
-            )
+            ),
         )
 
         # ----------------------------------------------------
@@ -1252,7 +1708,7 @@ def process_statement(statement):
 
         for row_number, (_, row) in enumerate(
             df.iterrows(),
-            start=1
+            start=1,
         ):
 
             transaction_date = (
@@ -1260,46 +1716,30 @@ def process_statement(statement):
             )
 
             value_date = (
-                row.get(
-                    "value_date"
-                )
+                row.get("value_date")
             )
 
             description = clean_text(
-                row.get(
-                    "description"
-                )
+                row.get("description")
             )
 
             if not description:
-
                 description = "Unknown Transaction"
 
             debit = clean_amount(
-                row.get(
-                    "debit",
-                    0
-                )
+                row.get("debit", 0)
             )
 
             credit = clean_amount(
-                row.get(
-                    "credit",
-                    0
-                )
+                row.get("credit", 0)
             )
 
             balance = clean_amount(
-                row.get(
-                    "balance",
-                    0
-                )
+                row.get("balance", 0)
             )
 
             cheque_number = clean_text(
-                row.get(
-                    "cheque_number"
-                )
+                row.get("cheque_number")
             )
 
             # ------------------------------------------------
@@ -1307,19 +1747,16 @@ def process_statement(statement):
             # ------------------------------------------------
 
             if credit > 0:
-
                 transaction_type = "CREDIT"
 
             elif debit > 0:
-
                 transaction_type = "DEBIT"
 
             else:
-
                 transaction_type = "DEBIT"
 
             # ------------------------------------------------
-            # Amount for AI
+            # Amount for categorization
             # ------------------------------------------------
 
             transaction_amount = (
@@ -1329,81 +1766,77 @@ def process_statement(statement):
             )
 
             # ------------------------------------------------
-            # AI categorization
+            # Categorization
             # ------------------------------------------------
 
             ai_result = get_ai_category(
-                description,
-                transaction_amount
+                description=description,
+                amount=transaction_amount,
+                transaction_type=transaction_type,
             )
 
+            if not isinstance(
+                ai_result,
+                dict,
+            ):
+                ai_result = {}
+
             # ------------------------------------------------
-            # FINAL SAFETY NORMALIZATION
-            #
-            # Even if get_ai_category() somehow returns
-            # None/empty values, never send NULL merchant
-            # to PostgreSQL.
+            # Final safety normalization
             # ------------------------------------------------
 
             category = clean_text(
-                ai_result.get(
-                    "category"
-                )
+                ai_result.get("category")
             )
 
             if not category:
-
-                category = "Others"
+                category = "Other"
 
             merchant = clean_text(
-                ai_result.get(
-                    "merchant"
-                )
+                ai_result.get("merchant")
             )
 
             if not merchant:
-
-                merchant = "Unknown Merchant"
+                merchant = (
+                    extract_merchant_name(
+                        description
+                    )
+                    or "Unknown Merchant"
+                )
 
             confidence = ai_result.get(
-                "confidence"
+                "confidence",
+                0,
             )
 
             if confidence is None:
-
                 confidence = 0
 
             try:
-
                 confidence = float(
                     confidence
                 )
-
             except (
                 ValueError,
-                TypeError
+                TypeError,
             ):
-
                 confidence = 0
 
             confidence = max(
                 0,
                 min(
                     confidence,
-                    1
-                )
+                    1,
+                ),
             )
 
             reason = clean_text(
-                ai_result.get(
-                    "reason"
-                )
+                ai_result.get("reason")
             )
 
             if not reason:
-
                 reason = (
-                    "No AI reason provided."
+                    "No categorization reason available."
                 )
 
             # ------------------------------------------------
@@ -1416,42 +1849,47 @@ def process_statement(statement):
 
             print(
                 "Processing transaction:",
-                row_number
+                row_number,
             )
 
             print(
                 "Date:",
-                transaction_date
+                transaction_date,
             )
 
             print(
                 "Description:",
-                description
+                description,
             )
 
             print(
                 "Debit:",
-                debit
+                debit,
             )
 
             print(
                 "Credit:",
-                credit
+                credit,
+            )
+
+            print(
+                "Transaction Type:",
+                transaction_type,
             )
 
             print(
                 "Category:",
-                category
+                category,
             )
 
             print(
                 "Merchant:",
-                merchant
+                merchant,
             )
 
             print(
                 "Confidence:",
-                confidence
+                confidence,
             )
 
             # ------------------------------------------------
@@ -1460,55 +1898,42 @@ def process_statement(statement):
 
             transaction_obj = Transaction(
                 statement=statement,
-
                 transaction_date=transaction_date,
-
                 description=description,
-
                 debit=debit,
-
                 credit=credit,
-
                 balance=balance,
-
                 transaction_type=transaction_type,
-
                 category=category,
-
                 merchant=merchant,
-
                 ai_confidence=confidence,
-
                 ai_reason=reason,
             )
 
             # ------------------------------------------------
-            # Add fields only if model supports them
+            # Add optional model fields
             # ------------------------------------------------
 
             if hasattr(
                 transaction_obj,
-                "value_date"
+                "value_date",
             ):
-
                 transaction_obj.value_date = (
                     value_date
                 )
 
             if hasattr(
                 transaction_obj,
-                "cheque_number"
+                "cheque_number",
             ):
-
                 transaction_obj.cheque_number = (
                     cheque_number
                 )
 
             if hasattr(
                 transaction_obj,
-                "transaction_remarks"
+                "transaction_remarks",
             ):
-
                 transaction_obj.transaction_remarks = (
                     description
                 )
@@ -1524,23 +1949,19 @@ def process_statement(statement):
         for transaction in created_transactions:
 
             if not transaction.category:
-
-                transaction.category = "Others"
+                transaction.category = "Other"
 
             if not transaction.merchant:
-
                 transaction.merchant = (
                     "Unknown Merchant"
                 )
 
             if transaction.ai_confidence is None:
-
                 transaction.ai_confidence = 0
 
             if not transaction.ai_reason:
-
                 transaction.ai_reason = (
-                    "No AI reason provided."
+                    "No categorization reason available."
                 )
 
         print(
@@ -1549,7 +1970,7 @@ def process_statement(statement):
 
         print(
             "Prepared transactions:",
-            len(created_transactions)
+            len(created_transactions),
         )
 
         print(
@@ -1562,7 +1983,7 @@ def process_statement(statement):
 
         Transaction.objects.bulk_create(
             created_transactions,
-            batch_size=500
+            batch_size=500,
         )
 
         print(
@@ -1581,8 +2002,7 @@ def process_statement(statement):
 
             transaction_dates = [
                 transaction.transaction_date
-                for transaction
-                in created_transactions
+                for transaction in created_transactions
                 if transaction.transaction_date
             ]
 
@@ -1590,16 +2010,12 @@ def process_statement(statement):
 
                 statement.statement_from = (
                     extracted_from
-                    or min(
-                        transaction_dates
-                    )
+                    or min(transaction_dates)
                 )
 
                 statement.statement_to = (
                     extracted_to
-                    or max(
-                        transaction_dates
-                    )
+                    or max(transaction_dates)
                 )
 
         # ----------------------------------------------------
@@ -1627,7 +2043,7 @@ def process_statement(statement):
         statement.save(
             update_fields=[
                 "status",
-                "error_message"
+                "error_message",
             ]
         )
 
@@ -1641,12 +2057,12 @@ def process_statement(statement):
 
         print(
             "Statement ID:",
-            statement.id
+            statement.id,
         )
 
         print(
             "Total Transactions:",
-            statement.total_transactions
+            statement.total_transactions,
         )
 
         print(
@@ -1659,7 +2075,7 @@ def process_statement(statement):
 
         print(
             "Statement processing failed:",
-            error
+            error,
         )
 
         statement.status = "FAILED"
@@ -1671,7 +2087,7 @@ def process_statement(statement):
         statement.save(
             update_fields=[
                 "status",
-                "error_message"
+                "error_message",
             ]
         )
 
@@ -1713,29 +2129,30 @@ def calculate_analysis(statement):
         transactions.count()
     )
 
-    largest_expense = (
-        transactions.aggregate(
-            maximum=Sum("debit")
-        )["maximum"]
-        or Decimal("0")
-    )
+    # --------------------------------------------------------
+    # Largest expense
+    # --------------------------------------------------------
 
-    # More accurate largest expense
     largest_expense_transaction = (
         transactions
+        .filter(debit__gt=0)
         .order_by("-debit")
         .first()
     )
 
-    if largest_expense_transaction:
+    largest_expense = (
+        largest_expense_transaction.debit
+        if largest_expense_transaction
+        else Decimal("0")
+    )
 
-        largest_expense = (
-            largest_expense_transaction.debit
-            or Decimal("0")
-        )
+    # --------------------------------------------------------
+    # Largest income
+    # --------------------------------------------------------
 
     largest_income_transaction = (
         transactions
+        .filter(credit__gt=0)
         .order_by("-credit")
         .first()
     )
@@ -1769,21 +2186,19 @@ def calculate_analysis(statement):
         transactions
         .dates(
             "transaction_date",
-            "month"
+            "month",
         )
         .count()
     )
 
     average_monthly_income = (
-        total_income
-        / monthly_count
+        total_income / monthly_count
         if monthly_count
         else Decimal("0")
     )
 
     average_monthly_expense = (
-        total_expenses
-        / monthly_count
+        total_expenses / monthly_count
         if monthly_count
         else Decimal("0")
     )
@@ -1796,7 +2211,7 @@ def calculate_analysis(statement):
         transactions
         .order_by(
             "transaction_date",
-            "id"
+            "id",
         )
         .first()
     )
@@ -1809,7 +2224,7 @@ def calculate_analysis(statement):
         transactions
         .order_by(
             "-transaction_date",
-            "-id"
+            "-id",
         )
         .first()
     )
@@ -1860,7 +2275,7 @@ def calculate_analysis(statement):
                     if last_transaction
                     else None
                 ),
-            }
+            },
         )
     )
 
@@ -1881,7 +2296,7 @@ def calculate_analysis(statement):
     )
 
     # --------------------------------------------------------
-    # Categories for AI
+    # Categories for AI insight
     # --------------------------------------------------------
 
     categories = list(
@@ -1892,7 +2307,7 @@ def calculate_analysis(statement):
         .values(
             "category",
             "total_amount",
-            "transaction_count"
+            "transaction_count",
         )
     )
 
@@ -1930,32 +2345,39 @@ def calculate_analysis(statement):
 
         if not isinstance(
             ai_result,
-            dict
+            dict,
         ):
-
             ai_result = {}
 
     except Exception as error:
 
         print(
             "Financial insight generation failed:",
-            error
+            error,
         )
 
         ai_result = {}
 
-    analysis.ai_summary = (
+    analysis.ai_summary = clean_text(
         ai_result.get(
             "summary",
-            ""
+            "",
         )
     )
 
+    recommendations = ai_result.get(
+        "recommendations",
+        [],
+    )
+
+    if not isinstance(
+        recommendations,
+        list,
+    ):
+        recommendations = []
+
     analysis.ai_recommendations = (
-        ai_result.get(
-            "recommendations",
-            []
-        )
+        recommendations
     )
 
     analysis.save()
@@ -1968,7 +2390,7 @@ def calculate_analysis(statement):
 # ============================================================
 
 def create_category_summaries(
-    analysis
+    analysis,
 ):
 
     CategorySummary.objects.filter(
@@ -1993,21 +2415,12 @@ def create_category_summaries(
 
     grouped = (
         transactions
-        .values(
-            "category"
-        )
+        .values("category")
         .annotate(
-            total_amount=Sum(
-                "debit"
-            ),
-
-            transaction_count=Count(
-                "id"
-            )
+            total_amount=Sum("debit"),
+            transaction_count=Count("id"),
         )
-        .order_by(
-            "-total_amount"
-        )
+        .order_by("-total_amount")
     )
 
     objects = []
@@ -2030,21 +2443,23 @@ def create_category_summaries(
 
             percentage = Decimal("0")
 
+        category_name = clean_text(
+            item.get("category")
+        )
+
+        if not category_name:
+            category_name = "Other"
+
         objects.append(
             CategorySummary(
                 analysis=analysis,
 
-                category=(
-                    item["category"]
-                    or "Others"
-                ),
+                category=category_name,
 
                 total_amount=amount,
 
                 transaction_count=(
-                    item[
-                        "transaction_count"
-                    ]
+                    item["transaction_count"]
                 ),
 
                 percentage=percentage,
@@ -2063,7 +2478,7 @@ def create_category_summaries(
 # ============================================================
 
 def create_monthly_summaries(
-    analysis
+    analysis,
 ):
 
     MonthlySummary.objects.filter(
@@ -2090,20 +2505,15 @@ def create_monthly_summaries(
         )
         .values(
             "year",
-            "month"
+            "month",
         )
         .annotate(
-            income=Sum(
-                "credit"
-            ),
-
-            expenses=Sum(
-                "debit"
-            ),
+            income=Sum("credit"),
+            expenses=Sum("debit"),
         )
         .order_by(
             "year",
-            "month"
+            "month",
         )
     )
 
@@ -2138,6 +2548,7 @@ def create_monthly_summaries(
         )
 
         month = item["month"]
+        year = item["year"]
 
         if (
             month
@@ -2156,7 +2567,7 @@ def create_monthly_summaries(
             MonthlySummary(
                 analysis=analysis,
 
-                year=item["year"],
+                year=year,
 
                 month=month,
 
@@ -2167,8 +2578,7 @@ def create_monthly_summaries(
                 expenses=expenses,
 
                 cash_flow=(
-                    income
-                    - expenses
+                    income - expenses
                 ),
             )
         )

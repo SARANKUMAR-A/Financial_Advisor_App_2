@@ -1,8 +1,37 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
+function getUserDisplay() {
+    try {
+        const storedUser = sessionStorage.getItem("user");
+        if (storedUser) {
+            const parsed = JSON.parse(storedUser);
+            const name = parsed?.first_name
+                ? `${parsed.first_name} ${parsed.last_name || ""}`.trim()
+                : parsed?.username || "";
+            const initials = `${parsed?.first_name?.charAt(0) || ""}${
+                parsed?.last_name?.charAt(0) || parsed?.username?.charAt(0) || ""
+            }`.toUpperCase();
+            if (name) {
+                return { name, initials: initials || "U" };
+            }
+        }
+        const storedUsername = sessionStorage.getItem("username");
+        if (storedUsername) {
+            return {
+                name: storedUsername,
+                initials: storedUsername.charAt(0).toUpperCase(),
+            };
+        }
+    } catch (e) {
+        // ignore
+    }
+    return { name: "User", initials: "U" };
+}
+
 function MainLayout() {
 
     const navigate = useNavigate();
+    const userDisplay = getUserDisplay();
 
     return (
         <div className="main-layout">
@@ -134,10 +163,10 @@ function MainLayout() {
                             }
                         >
                             <span className="avatar">
-                                SA
+                                {userDisplay.initials}
                             </span>
 
-                            Sarankumar
+                            {userDisplay.name}
 
                             <span>⌄</span>
 

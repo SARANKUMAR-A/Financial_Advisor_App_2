@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.models import User
-from django.db.models import Q
+from django.db.models import Q, F, ExpressionWrapper, DecimalField
 from django.http import HttpResponse
 
 from rest_framework.views import APIView
@@ -29,6 +29,10 @@ from .serializers import (
 )
 
 from .services import process_statement
+from .ollama_service import (
+    generate_financial_insight,
+    check_ollama_status,
+)
 
 
 # ============================================================
@@ -452,9 +456,22 @@ class DashboardView(APIView):
 
     def get(self, request):
 
-        statement = get_latest_completed_statement(
-            request
-        )
+        statement_id = request.query_params.get("statement_id")
+
+        if statement_id:
+            statement = (
+                BankStatement.objects
+                .filter(
+                    id=statement_id,
+                    user=request.user,
+                    status="COMPLETED",
+                )
+                .first()
+            )
+        else:
+            statement = get_latest_completed_statement(
+                request
+            )
 
         if not statement:
 
@@ -520,7 +537,7 @@ class DashboardView(APIView):
             .order_by(
                 "-transaction_date",
                 "-id",
-            )[:10]
+            )[:25]
         )
 
         transaction_count = (
@@ -604,6 +621,9 @@ class DashboardView(APIView):
                     "recommendations": (
                         analysis.ai_recommendations
                     ),
+                    "is_local": True,
+                    "model": "llama3.2 (Local Ollama)",
+                    "statement_id": statement.id,
                 },
             }
         )
@@ -662,21 +682,34 @@ class TransactionListView(APIView):
                 statement__user=request.user
             )
             .select_related("statement")
-            .order_by(
-                "-transaction_date",
-                "-id",
-            )
         )
 
         # ----------------------------------------------------
         # Statement filter
         # ----------------------------------------------------
 
-        if statement_id:
+        active_statement = None
 
-            transactions = transactions.filter(
-                statement_id=statement_id
-            )
+        if statement_id:
+            if str(statement_id).lower() != "all":
+                transactions = transactions.filter(
+                    statement_id=statement_id
+                )
+                active_statement = (
+                    BankStatement.objects
+                    .filter(
+                        id=statement_id,
+                        user=request.user,
+                    )
+                    .first()
+                )
+        else:
+            latest_statement = get_latest_completed_statement(request)
+            if latest_statement:
+                transactions = transactions.filter(
+                    statement_id=latest_statement.id
+                )
+                active_statement = latest_statement
 
         # ----------------------------------------------------
         # Search
@@ -685,17 +718,10 @@ class TransactionListView(APIView):
         if search:
 
             transactions = transactions.filter(
-                Q(
-                    transaction_remarks__icontains=search
-                )
-                |
-                Q(
-                    cheque_number__icontains=search
-                )
-                |
-                Q(
-                    category__icontains=search
-                )
+                Q(description__icontains=search)
+                | Q(merchant__icontains=search)
+                | Q(category__icontains=search)
+                | Q(sub_category__icontains=search)
             )
 
         # ----------------------------------------------------
@@ -719,7 +745,8 @@ class TransactionListView(APIView):
         ):
 
             transactions = transactions.filter(
-                deposit_amount__gt=0
+                Q(transaction_type__iexact="CREDIT")
+                | Q(credit__gt=0)
             )
 
         elif transaction_type in (
@@ -729,7 +756,8 @@ class TransactionListView(APIView):
         ):
 
             transactions = transactions.filter(
-                withdrawal_amount__gt=0
+                Q(transaction_type__iexact="DEBIT")
+                | Q(debit__gt=0)
             )
 
         # ----------------------------------------------------
@@ -770,11 +798,11 @@ class TransactionListView(APIView):
 
                 transactions = transactions.filter(
                     Q(
-                        withdrawal_amount__gte=amount
+                        debit__gte=amount
                     )
                     |
                     Q(
-                        deposit_amount__gte=amount
+                        credit__gte=amount
                     )
                 )
 
@@ -791,16 +819,46 @@ class TransactionListView(APIView):
 
                 transactions = transactions.filter(
                     Q(
-                        withdrawal_amount__lte=amount
+                        debit__lte=amount
                     )
                     |
                     Q(
-                        deposit_amount__lte=amount
+                        credit__lte=amount
                     )
                 )
 
             except InvalidOperation:
                 pass
+
+        # ----------------------------------------------------
+        # Sorting
+        # ----------------------------------------------------
+
+        sort_by = request.query_params.get("sort_by", "date").strip().lower()
+        sort_dir = request.query_params.get("sort_dir", "desc").strip().lower()
+        is_asc = sort_dir == "asc"
+
+        if sort_by == "amount":
+            transactions = transactions.annotate(
+                net_amount=ExpressionWrapper(
+                    F("credit") - F("debit"),
+                    output_field=DecimalField(max_digits=15, decimal_places=2)
+                )
+            )
+            order_field = "net_amount" if is_asc else "-net_amount"
+            transactions = transactions.order_by(order_field, "-id")
+
+        elif sort_by == "description":
+            order_field = "description" if is_asc else "-description"
+            transactions = transactions.order_by(order_field, "-id")
+
+        elif sort_by == "category":
+            order_field = "category" if is_asc else "-category"
+            transactions = transactions.order_by(order_field, "-id")
+
+        else:
+            order_field = "transaction_date" if is_asc else "-transaction_date"
+            transactions = transactions.order_by(order_field, "-id")
 
         # ----------------------------------------------------
         # Pagination
@@ -827,10 +885,46 @@ class TransactionListView(APIView):
             many=True,
         )
 
+        statement_data = None
+        if active_statement:
+            statement_data = {
+                "id": active_statement.id,
+                "file_name": active_statement.file_name,
+                "from": active_statement.statement_from,
+                "to": active_statement.statement_to,
+                "uploaded_at": active_statement.uploaded_at,
+            }
+
+        # Available categories & months for this scope (unaffected by category/type filter)
+        scope_qs = (
+            Transaction.objects
+            .filter(statement_id=active_statement.id)
+            if active_statement
+            else Transaction.objects.filter(statement__user=request.user)
+        )
+
+        available_categories = [
+            c for c in (
+                scope_qs
+                .values_list("category", flat=True)
+                .distinct()
+                .order_by("category")
+            ) if c
+        ]
+
+        available_months = [
+            d.strftime("%Y-%m")
+            for d in scope_qs.dates("transaction_date", "month", order="DESC")
+        ]
+
         return paginator.get_paginated_response(
             {
                 "success": True,
                 "results": serializer.data,
+                "statement": statement_data,
+                "is_all_statements": str(statement_id).lower() == "all" if statement_id else False,
+                "categories": available_categories,
+                "months": available_months,
             }
         )
 
@@ -1044,54 +1138,121 @@ class MonthlyView(APIView):
 # ============================================================
 
 class InsightsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _resolve_statement(self, request):
+        statement_id = request.query_params.get("statement_id") or request.data.get("statement_id")
+        if statement_id and str(statement_id).lower() != "all":
+            return BankStatement.objects.filter(
+                id=statement_id,
+                user=request.user,
+                status="COMPLETED"
+            ).first()
+        return get_latest_completed_statement(request)
+
+    def _generate_for_statement(self, statement):
+        analysis = getattr(statement, "analysis", None)
+        if not analysis:
+            return None
+
+        categories = list(
+            analysis.categories.values("category", "total_amount", "transaction_count")
+        )
+        summary_payload = {
+            "total_income": str(analysis.total_income or "0"),
+            "total_expenses": str(analysis.total_expenses or "0"),
+            "net_cash_flow": str(analysis.net_cash_flow or "0"),
+            "savings_rate": str(analysis.savings_rate or "0"),
+            "largest_expense": str(analysis.largest_expense or "0"),
+            "categories": categories,
+        }
+
+        ai_result = generate_financial_insight(summary_payload)
+        summary_text = ai_result.get("summary", "").strip()
+        recommendations = ai_result.get("recommendations", [])
+
+        if summary_text:
+            analysis.ai_summary = summary_text
+            analysis.ai_recommendations = recommendations
+            analysis.save()
+
+        return {
+            "summary": analysis.ai_summary,
+            "recommendations": analysis.ai_recommendations,
+            "financial_health": ai_result.get("financial_health", "Good"),
+            "key_takeaways": ai_result.get("key_takeaways", []),
+            "model_used": ai_result.get("model_used", "llama3.2:latest (Local Ollama)"),
+            "is_local": True,
+            "statement_id": statement.id,
+            "statement_file": statement.file_name,
+        }
 
     def get(self, request):
-
-        statement = (
-            get_latest_completed_statement(
-                request
-            )
-        )
-
+        statement = self._resolve_statement(request)
         if not statement:
-
-            return Response(
-                {
-                    "success": True,
-                    "summary": "",
-                    "recommendations": [],
-                }
-            )
-
-        analysis = getattr(
-            statement,
-            "analysis",
-            None,
-        )
-
-        if not analysis:
-
-            return Response(
-                {
-                    "success": True,
-                    "summary": "",
-                    "recommendations": [],
-                }
-            )
-
-        return Response(
-            {
+            return Response({
                 "success": True,
+                "has_data": False,
+                "summary": "",
+                "recommendations": [],
+                "is_local": True,
+            })
 
-                "summary": (
-                    analysis.ai_summary
-                ),
+        analysis = getattr(statement, "analysis", None)
+        if not analysis:
+            return Response({
+                "success": True,
+                "has_data": False,
+                "summary": "",
+                "recommendations": [],
+                "is_local": True,
+            })
 
-                "recommendations": (
-                    analysis.ai_recommendations
-                ),
-            }
-        )
+        # If summary is currently empty, automatically generate it via local Ollama
+        if not analysis.ai_summary or not analysis.ai_summary.strip():
+            result = self._generate_for_statement(statement)
+            if result:
+                return Response({
+                    "success": True,
+                    "has_data": True,
+                    **result,
+                })
+
+        ollama_info = check_ollama_status()
+
+        return Response({
+            "success": True,
+            "has_data": True,
+            "summary": analysis.ai_summary,
+            "recommendations": analysis.ai_recommendations,
+            "is_local": True,
+            "model_used": "llama3.2:latest (Local Ollama)",
+            "ollama_status": ollama_info,
+            "statement_id": statement.id,
+            "statement_file": statement.file_name,
+        })
+
+    def post(self, request):
+        statement = self._resolve_statement(request)
+        if not statement:
+            return Response({
+                "success": False,
+                "message": "No statement available to generate insights."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        result = self._generate_for_statement(statement)
+        if not result:
+            return Response({
+                "success": False,
+                "message": "Statement analysis data not found."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            "success": True,
+            "has_data": True,
+            "message": "Insights generated successfully using local Ollama model.",
+            **result,
+        })
 
 
 # ============================================================
